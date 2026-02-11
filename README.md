@@ -1,50 +1,61 @@
-# Welcome to your Expo app 👋
+# Lugha AI
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+An Arabic language learning app powered by AI. Practice conversations with an AI tutor through text or voice.
 
-## Get started
+## Prerequisites
 
-1. Install dependencies
+- [Node.js](https://nodejs.org/) (v18+)
+- [Python](https://www.python.org/) (v3.10+)
+- [Expo Go](https://expo.dev/go) app on your phone
+- A [Groq API key](https://console.groq.com/)
 
-   ```bash
-   npm install
-   ```
+## Getting Started
 
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+### 1. Install frontend dependencies
 
 ```bash
-npm run reset-project
+npm install
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### 2. Set up the backend
 
-## Learn more
+```bash
+cd backend
+pip install -r requirements.txt
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+Create a `.env` file inside the `backend/` folder with your Groq API key:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```
+GROQ_API_KEY=your_api_key_here
+```
 
-## Join the community
+### 3. Start the backend server
 
-Join our community of developers creating universal apps.
+The backend **must be running** for the chat to work. Start it before using the app:
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```bash
+cd backend
+uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+```
+
+You should see `Application startup complete` in the terminal. Keep this terminal open.
+
+### 4. Start the Expo app
+
+In a **separate terminal**:
+
+```bash
+npx expo start
+```
+
+Scan the QR code with Expo Go on your phone.
+
+> **Note:** Your phone and computer must be on the same Wi-Fi network. If you change networks, update `BACKEND_URL` in `app/chat/[id].tsx` with your new local IP address.
+
+## Project Structure
+
+- `app/` — Expo Router screens (tabs, chat)
+- `backend/` — FastAPI server (Groq AI integration)
+- `components/` — Reusable React Native components
+- `constants/` — Theme colors and config
