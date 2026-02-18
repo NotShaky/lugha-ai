@@ -3,23 +3,24 @@ import { Audio } from 'expo-av';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    KeyboardAvoidingView,
-    Platform,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 // --- Configuration ---
-// Hardcoded IP for debugging connectivity
-const BACKEND_URL = 'http://192.168.0.180:8001';
+const BACKEND_URL = Platform.OS === 'web' 
+  ? 'http://localhost:8001' 
+  : 'http://192.168.0.180:8001';
 
 // const getBackendUrl = () => {
 //   try {
@@ -40,7 +41,41 @@ interface Message {
   id: string;
   text: string;
   sender: 'user' | 'ai';
+  type?: 'correction' | 'reply';
   timestamp: Date;
+}
+
+// Parse AI reply into separate correction + reply messages
+function parseAiReply(reply: string, baseId: string): Message[] {
+  const msgs: Message[] = [];
+  const now = new Date();
+
+  // Extract correction (starts with ✏️)
+  const correctionMatch = reply.match(/(?:✏️\s*Correction:?[\s\S]*?)(?=\n\n|$)/m);
+  let remaining = reply;
+
+  if (correctionMatch) {
+    msgs.push({
+      id: baseId + '_correction',
+      text: correctionMatch[0].trim(),
+      sender: 'ai',
+      type: 'correction',
+      timestamp: now,
+    });
+    remaining = remaining.replace(correctionMatch[0], '').trim();
+  }
+
+  if (remaining.length > 0) {
+    msgs.push({
+      id: baseId + '_reply',
+      text: remaining,
+      sender: 'ai',
+      type: 'reply',
+      timestamp: now,
+    });
+  }
+
+  return msgs;
 }
 
 export default function ChatScreen() {
@@ -58,8 +93,11 @@ export default function ChatScreen() {
   ]);
   const [inputText, setInputText] = useState('');
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [isRecording, setIsRecording] = useState(false); // NEW: track recording state for all platforms
   const [isProcessing, setIsProcessing] = useState(false);
+  const [expandedCorrections, setExpandedCorrections] = useState<Set<string>>(new Set());
   const flatListRef = useRef<FlatList>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null); // NEW: store web MediaRecorder
 
   // --- Effects ---
   useEffect(() => {
@@ -99,8 +137,8 @@ export default function ChatScreen() {
       console.log('Response data:', data);
       
       if (data.reply) {
-        const aiMsg: Message = { id: Date.now().toString() + '_ai', text: data.reply, sender: 'ai', timestamp: new Date() };
-        setMessages(prev => [...prev, aiMsg]);
+        const aiMsgs = parseAiReply(data.reply, Date.now().toString());
+        setMessages(prev => [...prev, ...aiMsgs]);
       } else {
         Alert.alert('Error', 'Invalid Response:\n' + JSON.stringify(data));
       }
@@ -113,29 +151,79 @@ export default function ChatScreen() {
   };
 
   const startRecording = async () => {
-    try {
-      const { status } = await Audio.requestPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Microphone access is required.');
-        return;
-      }
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-      });
+    if (Platform.OS === 'web') {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const mediaRecorder = new MediaRecorder(stream);
+        const chunks: Blob[] = [];
 
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
-      setRecording(recording);
-    } catch (err) {
-      console.error('Failed to start recording', err);
+        mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+        mediaRecorder.onstop = async () => {
+          // Stop all tracks so the browser mic indicator goes away
+          stream.getTracks().forEach(track => track.stop());
+
+          setIsProcessing(true);
+          try {
+            const blob = new Blob(chunks, { type: 'audio/webm' });
+            const formData = new FormData();
+            formData.append('file', blob, 'recording.webm');
+
+            const res = await fetch(`${BACKEND_URL}/transcribe`, {
+              method: 'POST',
+              body: formData,
+            });
+            const data = await res.json();
+
+            if (data.text) {
+              const userMsg: Message = { id: Date.now().toString(), text: data.text, sender: 'user', timestamp: new Date() };
+              setMessages(prev => [...prev, userMsg]);
+            }
+            if (data.reply) {
+              const aiMsgs = parseAiReply(data.reply, Date.now().toString());
+              setMessages(prev => [...prev, ...aiMsgs]);
+            }
+          } catch (error) {
+            console.error('Web audio processing failed', error);
+            Alert.alert('Error', 'Failed to process audio.');
+          } finally {
+            setIsProcessing(false);
+          }
+        };
+
+        mediaRecorder.start();
+        mediaRecorderRef.current = mediaRecorder;
+        setIsRecording(true);
+      } catch (err) {
+        console.error('Web recording failed:', err);
+      }
+    } else {
+      try {
+        await Audio.requestPermissionsAsync();
+        await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+        const { recording } = await Audio.Recording.createAsync(
+          Audio.RecordingOptionsPresets.HIGH_QUALITY
+        );
+        setRecording(recording);
+        setIsRecording(true);
+      } catch (err) {
+        console.error('Failed to start recording', err);
+      }
     }
   };
 
   const stopRecording = async () => {
+    if (Platform.OS === 'web') {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop(); // triggers onstop handler above
+        mediaRecorderRef.current = null;
+      }
+      setIsRecording(false);
+      return;
+    }
+
     if (!recording) return;
 
+    setIsRecording(false);
     setIsProcessing(true);
     try {
       await recording.stopAndUnloadAsync();
@@ -144,7 +232,6 @@ export default function ChatScreen() {
       
       if (!uri) return;
 
-      // Upload Audio
       const formData = new FormData();
       // @ts-ignore
       formData.append('file', { uri, name: 'audio.m4a', type: 'audio/m4a' });
@@ -152,21 +239,18 @@ export default function ChatScreen() {
       const response = await fetch(`${BACKEND_URL}/transcribe`, {
         method: 'POST',
         body: formData,
-        // headers: { 'Content-Type': 'multipart/form-data' }, // Let fetch handle boundary
       });
       
       const data = await response.json();
       
-      // 1. Show Transcription (User Message)
       if (data.text) {
         const userMsg: Message = { id: Date.now().toString(), text: data.text, sender: 'user', timestamp: new Date() };
         setMessages(prev => [...prev, userMsg]);
       }
 
-      // 2. Show AI Reply
       if (data.reply) {
-        const aiMsg: Message = { id: Date.now().toString() + '_ai', text: data.reply, sender: 'ai', timestamp: new Date() };
-        setMessages(prev => [...prev, aiMsg]);
+        const aiMsgs = parseAiReply(data.reply, Date.now().toString());
+        setMessages(prev => [...prev, ...aiMsgs]);
       }
 
     } catch (error) {
@@ -200,25 +284,82 @@ export default function ChatScreen() {
         data={messages}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.listContent}
-        renderItem={({ item }) => (
-          <View style={[
-            styles.bubble, 
-            item.sender === 'user' ? styles.bubbleUser : styles.bubbleAi
-          ]}>
-            <Text style={[
-              styles.text, 
-              item.sender === 'user' ? styles.textUser : styles.textAi
+        renderItem={({ item }) => {
+          const isAi = item.sender === 'ai';
+          const isCorrection = item.type === 'correction';
+
+          // For AI reply messages, split Arabic and English
+          let arabicPart: string = item.text;
+          let englishPart: string | null = null;
+
+          if (isAi && !isCorrection) {
+            const englishMatch = item.text.match(/(\(English:[\s\S]*?\))\s*$/);
+            if (englishMatch) {
+              englishPart = englishMatch[1].replace(/^\(English:\s*/, '').replace(/\)$/, '').trim();
+              arabicPart = item.text.replace(englishMatch[0], '').trim();
+            }
+          }
+
+          // Correction bubble — collapsed by default
+          if (isCorrection) {
+            const isExpanded = expandedCorrections.has(item.id);
+            const toggleCorrection = () => {
+              setExpandedCorrections(prev => {
+                const next = new Set(prev);
+                if (next.has(item.id)) {
+                  next.delete(item.id);
+                } else {
+                  next.add(item.id);
+                }
+                return next;
+              });
+            };
+
+            return (
+              <TouchableOpacity
+                onPress={toggleCorrection}
+                activeOpacity={0.7}
+                style={[styles.bubble, isExpanded ? styles.bubbleCorrection : styles.bubbleCorrectionCollapsed]}
+              >
+                <View style={styles.correctionToggle}>
+                  <Text style={styles.correctionLabel}>✏️ {isExpanded ? 'Hide Correction' : 'Show Correction'}</Text>
+                  <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color="#F59E0B" />
+                </View>
+                {isExpanded && (
+                  <Text style={styles.correctionText}>{item.text.replace(/^✏️\s*Correction:?\s*/i, '')}</Text>
+                )}
+              </TouchableOpacity>
+            );
+          }
+
+          // Regular user or AI reply bubble
+          return (
+            <View style={[
+              styles.bubble, 
+              item.sender === 'user' ? styles.bubbleUser : styles.bubbleAi
             ]}>
-              {item.text}
-            </Text>
-            <Text style={[
-                 styles.timestamp, 
-                 item.sender === 'user' ? { color: 'rgba(255,255,255,0.7)' } : { color: '#8E8E93' }
-            ]}>
-                {item.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </Text>
-          </View>
-        )}
+              <Text style={[
+                styles.text, 
+                item.sender === 'user' ? styles.textUser : styles.textAi,
+                isAi && styles.textRtl,
+              ]}>
+                {arabicPart}
+              </Text>
+              {englishPart && (
+                <View style={styles.englishBox}>
+                  <Text style={styles.englishLabel}>English</Text>
+                  <Text style={styles.textEnglish}>{englishPart}</Text>
+                </View>
+              )}
+              <Text style={[
+                   styles.timestamp, 
+                   item.sender === 'user' ? { color: 'rgba(255,255,255,0.7)' } : { color: '#8E8E93' }
+              ]}>
+                  {item.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </Text>
+            </View>
+          );
+        }}
       />
 
       {/* Input Area */}
@@ -243,17 +384,18 @@ export default function ChatScreen() {
             </TouchableOpacity>
           ) : (
             <TouchableOpacity 
-              onPress={recording ? stopRecording : startRecording}
-              style={[styles.micBtn, recording ? styles.micBtnRecording : null]}
+              onPress={isRecording ? stopRecording : startRecording}
+              style={[styles.micBtn, isRecording ? styles.micBtnRecording : null]}
               disabled={isProcessing}
             >
               {isProcessing ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Ionicons name={recording ? "stop" : "mic"} size={20} color="#fff" />
+                <Ionicons name={isRecording ? "stop" : "mic"} size={20} color="#fff" />
               )}
             </TouchableOpacity>
           )}
+
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -310,6 +452,67 @@ const styles = StyleSheet.create({
   },
   textAi: {
     color: '#000',
+  },
+  textRtl: {
+    writingDirection: 'rtl',
+    textAlign: 'right',
+  },
+  bubbleCorrectionCollapsed: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#FFFDF5',
+    borderBottomLeftRadius: 2,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  bubbleCorrection: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#FFF8E1',
+    borderBottomLeftRadius: 2,
+    borderLeftWidth: 3,
+    borderLeftColor: '#FFC107',
+  },
+  correctionToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  correctionHeader: {
+    marginBottom: 6,
+  },
+  correctionLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#F59E0B',
+  },
+  correctionText: {
+    fontSize: 15,
+    color: '#664D03',
+    lineHeight: 22,
+    writingDirection: 'ltr',
+    textAlign: 'left',
+  },
+  englishBox: {
+    backgroundColor: '#E8F4FD',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#007AFF',
+  },
+  englishLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#007AFF',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  textEnglish: {
+    writingDirection: 'ltr',
+    textAlign: 'left',
+    color: '#333',
+    fontSize: 14,
+    lineHeight: 20,
   },
   timestamp: {
       fontSize: 10,

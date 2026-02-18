@@ -69,7 +69,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are a helpful and friendly Arabic language tutor. Reply in Arabic to help the user learn. Keep your answers concise."
+                            "content": "You are a helpful and friendly Arabic language tutor. If the user makes any grammar, spelling, or vocabulary mistakes in Arabic, first correct them by writing: \"✏️ Correction: [corrected version]\" with a brief explanation of the mistake. Then reply normally in Arabic to continue the conversation. Keep your answers concise. After your Arabic response, always add an English translation on a new line in parentheses, like: (English: ...)"
                         },
                         {
                             "role": "user",
@@ -116,7 +116,7 @@ async def chat_endpoint(request: ChatRequest):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful and friendly Arabic language tutor. Reply in Arabic to help the user learn. Keep your answers concise."
+                    "content": "You are a helpful and friendly Arabic language tutor. If the user makes any grammar, spelling, or vocabulary mistakes in Arabic, first correct them by writing: \"✏️ Correction: [corrected version]\" with a brief explanation of the mistake. Then reply normally in Arabic to continue the conversation. Keep your answers concise. After your Arabic response, always add an English translation on a new line in parentheses, like: (English: ...)"
                 },
                 {
                     "role": "user",
