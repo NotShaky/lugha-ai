@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import {
+  createAudioPlayer,
   RecordingPresets,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
@@ -119,6 +120,9 @@ export default function ChatScreen() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [expandedCorrections, setExpandedCorrections] = useState<Set<string>>(new Set());
   const [showTranslations, setShowTranslations] = useState(true);
+  const [autoSpeak, setAutoSpeak] = useState(false);
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const currentPlayerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
@@ -139,9 +143,100 @@ export default function ChatScreen() {
     setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
     }, 100);
+
+    // Auto-speak last AI reply message
+    if (autoSpeak && messages.length > 0) {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg.sender === 'ai' && lastMsg.type !== 'correction') {
+        speakArabic(lastMsg.text, lastMsg.id);
+      }
+    }
   }, [messages]);
 
   // --- Functions ---
+
+  // Extract Arabic text from a message for TTS
+  const getArabicText = (text: string): string => {
+    // Remove English translation part
+    return text.replace(/\(English:[\s\S]*?\)\s*$/, '').trim();
+  };
+
+  const speakArabic = async (text: string, messageId: string) => {
+    const arabicText = getArabicText(text);
+    if (!arabicText) return;
+
+    // If already speaking this message, stop
+    if (speakingId === messageId) {
+      if (currentPlayerRef.current) {
+        currentPlayerRef.current.remove();
+        currentPlayerRef.current = null;
+      }
+      setSpeakingId(null);
+      return;
+    }
+
+    // Stop any current playback
+    if (currentPlayerRef.current) {
+      currentPlayerRef.current.remove();
+      currentPlayerRef.current = null;
+    }
+
+    // Switch audio mode to playback
+    try {
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+    } catch (e) {
+      console.warn('Failed to set audio mode for playback:', e);
+    }
+
+    setSpeakingId(messageId);
+
+    try {
+      if (Platform.OS === 'web') {
+        // Web: fetch blob and play with HTML5 Audio
+        const response = await fetchWithTimeout(`${BACKEND_URL}/tts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: arabicText }),
+        }, 20000);
+
+        if (!response.ok) throw new Error(`TTS failed: ${response.status}`);
+
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.onended = () => {
+          setSpeakingId(null);
+          URL.revokeObjectURL(url);
+        };
+        audio.onerror = () => {
+          setSpeakingId(null);
+          URL.revokeObjectURL(url);
+        };
+        audio.play();
+      } else {
+        // Native: use expo-audio player with GET endpoint URL
+        const ttsUrl = `${BACKEND_URL}/tts?text=${encodeURIComponent(arabicText)}`;
+        const player = createAudioPlayer({ uri: ttsUrl });
+        currentPlayerRef.current = player;
+        player.play();
+
+        // Clean up when done
+        const checkInterval = setInterval(() => {
+          if (!player.playing) {
+            clearInterval(checkInterval);
+            player.remove();
+            if (currentPlayerRef.current === player) {
+              currentPlayerRef.current = null;
+              setSpeakingId(null);
+            }
+          }
+        }, 500);
+      }
+    } catch (error) {
+      console.error('TTS error:', error);
+      setSpeakingId(null);
+    }
+  };
 
   const sendMessage = async (text: string) => {
     if (!text.trim()) return;
@@ -325,15 +420,29 @@ export default function ChatScreen() {
              <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{typeof title === 'string' ? title : 'Lugha AI Chat'}</Text>
-        <TouchableOpacity
-          onPress={() => setShowTranslations(prev => !prev)}
-          style={styles.translateBtn}
-        >
-          <Ionicons name="language" size={20} color={showTranslations ? '#007AFF' : '#999'} />
-          <Text style={[styles.translateBtnText, showTranslations && { color: '#007AFF' }]}>
-            {showTranslations ? 'EN' : 'EN'}
-          </Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            onPress={() => {
+              setAutoSpeak(prev => !prev);
+              if (autoSpeak && currentPlayerRef.current) {
+                currentPlayerRef.current.remove();
+                currentPlayerRef.current = null;
+              }
+            }}
+            style={styles.translateBtn}
+          >
+            <Ionicons name={autoSpeak ? 'volume-high' : 'volume-mute'} size={20} color={autoSpeak ? '#007AFF' : '#999'} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setShowTranslations(prev => !prev)}
+            style={styles.translateBtn}
+          >
+            <Ionicons name="language" size={20} color={showTranslations ? '#007AFF' : '#999'} />
+            <Text style={[styles.translateBtnText, showTranslations && { color: '#007AFF' }]}>
+              {showTranslations ? 'EN' : 'EN'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Chat Messages */}
@@ -409,12 +518,27 @@ export default function ChatScreen() {
                   <Text style={styles.textEnglish}>{englishPart}</Text>
                 </View>
               )}
-              <Text style={[
-                   styles.timestamp, 
-                   item.sender === 'user' ? { color: 'rgba(255,255,255,0.7)' } : { color: '#8E8E93' }
-              ]}>
-                  {item.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </Text>
+              <View style={styles.bubbleFooter}>
+                {isAi && (
+                  <TouchableOpacity
+                    onPress={() => speakArabic(item.text, item.id)}
+                    style={styles.speakerBtn}
+                    activeOpacity={0.6}
+                  >
+                    <Ionicons
+                      name={speakingId === item.id ? 'stop-circle' : 'volume-medium'}
+                      size={16}
+                      color={speakingId === item.id ? '#FF3B30' : '#007AFF'}
+                    />
+                  </TouchableOpacity>
+                )}
+                <Text style={[
+                     styles.timestamp, 
+                     item.sender === 'user' ? { color: 'rgba(255,255,255,0.7)' } : { color: '#8E8E93' }
+                ]}>
+                    {item.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </Text>
+              </View>
             </View>
           );
         }}
@@ -492,6 +616,11 @@ const styles = StyleSheet.create({
   },
   backButton: {
     padding: 8,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   translateBtn: {
     flexDirection: 'row',
@@ -602,6 +731,15 @@ const styles = StyleSheet.create({
       fontSize: 10,
       marginTop: 4,
       alignSelf: 'flex-end',
+  },
+  bubbleFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  speakerBtn: {
+    padding: 4,
   },
   inputContainer: {
     borderTopWidth: 1,

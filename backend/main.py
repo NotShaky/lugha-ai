@@ -1,4 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
@@ -8,6 +9,9 @@ import openai
 from groq import Groq
 from dotenv import load_dotenv
 from pathlib import Path
+import edge_tts
+import asyncio
+import uuid
 
 # Load .env from the same directory as main.py
 env_path = Path(__file__).parent / ".env"
@@ -26,6 +30,10 @@ app.add_middleware(
 
 class ChatRequest(BaseModel):
     text: str
+
+class TTSRequest(BaseModel):
+    text: str
+    voice: str = "ar-SA-HamedNeural"  # Default: Saudi male voice
 
 # Groq Configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -134,3 +142,63 @@ async def chat_endpoint(request: ChatRequest):
 @app.get("/")
 def read_root():
     return {"message": "Lugha AI Backend is running"}
+
+# Available Arabic voices:
+# ar-SA-HamedNeural (Saudi male) - clear, natural
+# ar-SA-ZariyahNeural (Saudi female)
+# ar-EG-ShakirNeural (Egyptian male)
+# ar-EG-SalmaNeural (Egyptian female)
+
+@app.post("/tts")
+async def text_to_speech(request: TTSRequest):
+    """Convert Arabic text to speech using Microsoft Edge TTS."""
+    temp_file = f"tts_{uuid.uuid4().hex}.mp3"
+    try:
+        communicate = edge_tts.Communicate(request.text, request.voice, rate="-10%")
+        await communicate.save(temp_file)
+        return FileResponse(
+            temp_file,
+            media_type="audio/mpeg",
+            filename="speech.mp3",
+            background=None,
+        )
+    except Exception as e:
+        print(f"TTS Error: {e}")
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        import threading
+        def cleanup():
+            import time
+            time.sleep(5)
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+        threading.Thread(target=cleanup, daemon=True).start()
+
+@app.get("/tts")
+async def text_to_speech_get(text: str, voice: str = "ar-SA-HamedNeural"):
+    """GET version for native audio players that can't POST."""
+    temp_file = f"tts_{uuid.uuid4().hex}.mp3"
+    try:
+        communicate = edge_tts.Communicate(text, voice, rate="-10%")
+        await communicate.save(temp_file)
+        return FileResponse(
+            temp_file,
+            media_type="audio/mpeg",
+            filename="speech.mp3",
+            background=None,
+        )
+    except Exception as e:
+        print(f"TTS Error: {e}")
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        import threading
+        def cleanup():
+            import time
+            time.sleep(5)
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+        threading.Thread(target=cleanup, daemon=True).start()
