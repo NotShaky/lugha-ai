@@ -60,7 +60,6 @@ async def transcribe_audio(file: UploadFile = File(...)):
                 transcript = client.audio.transcriptions.create(
                     model="whisper-large-v3", 
                     file=audio_file,
-                    language="ar" # Force Arabic language
                 )
                 print(f"Transcription: {transcript.text}")
 
@@ -69,7 +68,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
                     messages=[
                         {
                             "role": "system",
-                            "content": "You are a helpful and friendly Arabic language tutor. If the user makes any grammar, spelling, or vocabulary mistakes in Arabic, first correct them by writing: \"✏️ Correction: [corrected version]\" with a brief explanation of the mistake. Then reply normally in Arabic to continue the conversation. Keep your answers concise. After your Arabic response, always add an English translation on a new line in parentheses, like: (English: ...)"
+                            "content": "You are a helpful and friendly Arabic language tutor. The user may speak in Arabic, English, or a mix of both. If the user speaks in English (e.g. asking how to say something in Arabic), respond helpfully with the Arabic translation, pronunciation guidance, and explanation. If the user speaks in Arabic and makes any grammar, spelling, or vocabulary mistakes, first correct them by writing: \"✏️ Correction: [corrected version]\" with a brief explanation of the mistake. Then reply normally in Arabic to continue the conversation. Keep your answers concise. After your Arabic response, always add an English translation on a new line in parentheses, like: (English: ...)"
                         },
                         {
                             "role": "user",
@@ -116,7 +115,7 @@ async def chat_endpoint(request: ChatRequest):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful and friendly Arabic language tutor. If the user makes any grammar, spelling, or vocabulary mistakes in Arabic, first correct them by writing: \"✏️ Correction: [corrected version]\" with a brief explanation of the mistake. Then reply normally in Arabic to continue the conversation. Keep your answers concise. After your Arabic response, always add an English translation on a new line in parentheses, like: (English: ...)"
+                    "content": "You are a helpful and friendly Arabic language tutor. The user may write in Arabic, English, or a mix of both. If the user writes in English (e.g. asking how to say something in Arabic), respond helpfully with the Arabic translation, pronunciation guidance, and explanation. If the user writes in Arabic and makes any grammar, spelling, or vocabulary mistakes, first correct them by writing: \"✏️ Correction: [corrected version]\" with a brief explanation of the mistake. Then reply normally in Arabic to continue the conversation. Keep your answers concise. After your Arabic response, always add an English translation on a new line in parentheses, like: (English: ...)"
                 },
                 {
                     "role": "user",

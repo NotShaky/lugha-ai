@@ -118,6 +118,7 @@ export default function ChatScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [expandedCorrections, setExpandedCorrections] = useState<Set<string>>(new Set());
+  const [showTranslations, setShowTranslations] = useState(true);
   const flatListRef = useRef<FlatList>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
@@ -324,8 +325,14 @@ export default function ChatScreen() {
              <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{typeof title === 'string' ? title : 'Lugha AI Chat'}</Text>
-        <TouchableOpacity style={styles.backButton}>
-             <Ionicons name="ellipsis-horizontal" size={24} color="#000" />
+        <TouchableOpacity
+          onPress={() => setShowTranslations(prev => !prev)}
+          style={styles.translateBtn}
+        >
+          <Ionicons name="language" size={20} color={showTranslations ? '#007AFF' : '#999'} />
+          <Text style={[styles.translateBtnText, showTranslations && { color: '#007AFF' }]}>
+            {showTranslations ? 'EN' : 'EN'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -396,7 +403,7 @@ export default function ChatScreen() {
               ]}>
                 {arabicPart}
               </Text>
-              {englishPart && (
+              {englishPart && showTranslations && (
                 <View style={styles.englishBox}>
                   <Text style={styles.englishLabel}>English</Text>
                   <Text style={styles.textEnglish}>{englishPart}</Text>
@@ -485,6 +492,20 @@ const styles = StyleSheet.create({
   },
   backButton: {
     padding: 8,
+  },
+  translateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#F2F2F7',
+  },
+  translateBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#999',
   },
   listContent: {
     padding: 16,
