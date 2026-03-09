@@ -21,7 +21,7 @@ npm install
 
 ```bash
 cd backend
-pip install -r requirements.txt
+..\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
 Create a `.env` file inside the `backend/` folder with your Groq API key:
@@ -36,8 +36,15 @@ The backend **must be running** for the chat to work. Start it before using the 
 
 ```bash
 cd backend
-uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+..\.venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 ```
+
+> **Tip:** Alternatively, activate the virtual environment first, then run `uvicorn` directly:
+> ```bash
+> ..\.venv\Scripts\Activate.ps1
+> cd backend
+> uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+> ```
 
 You should see `Application startup complete` in the terminal. Keep this terminal open.
 

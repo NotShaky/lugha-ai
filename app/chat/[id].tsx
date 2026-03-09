@@ -1,5 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Audio } from 'expo-av';
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+} from 'expo-audio';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -20,7 +25,25 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 // --- Configuration ---
 const BACKEND_URL = Platform.OS === 'web' 
   ? 'http://localhost:8001' 
-  : 'http://192.168.0.180:8001';
+  : 'http://192.168.0.161:8001';
+
+const FETCH_TIMEOUT_MS = 15000; // 15 second timeout
+
+// Fetch with timeout to prevent infinite loading
+const fetchWithTimeout = (url: string, options: RequestInit, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> => {
+  return new Promise((resolve, reject) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`Request timed out after ${timeoutMs / 1000}s — is the backend running at ${BACKEND_URL}?`));
+    }, timeoutMs);
+
+    fetch(url, { ...options, signal: controller.signal })
+      .then(resolve)
+      .catch(reject)
+      .finally(() => clearTimeout(timer));
+  });
+};
 
 // const getBackendUrl = () => {
 //   try {
@@ -92,12 +115,22 @@ export default function ChatScreen() {
     },
   ]);
   const [inputText, setInputText] = useState('');
-  const [recording, setRecording] = useState<Audio.Recording | null>(null);
-  const [isRecording, setIsRecording] = useState(false); // NEW: track recording state for all platforms
+  const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [expandedCorrections, setExpandedCorrections] = useState<Set<string>>(new Set());
   const flatListRef = useRef<FlatList>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null); // NEW: store web MediaRecorder
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+
+  // expo-audio recorder (native only)
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY, (status) => {
+    console.log('Recorder status:', JSON.stringify(status));
+    if (status.isFinished) {
+      console.log('Recording finished, url:', status.url);
+    }
+    if (status.hasError) {
+      console.error('Recorder error:', status.error);
+    }
+  });
 
   // --- Effects ---
   useEffect(() => {
@@ -120,7 +153,7 @@ export default function ChatScreen() {
 
     try {
       console.log(`Sending to: ${BACKEND_URL}/chat`);
-      const response = await fetch(`${BACKEND_URL}/chat`, {
+      const response = await fetchWithTimeout(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
@@ -143,8 +176,8 @@ export default function ChatScreen() {
         Alert.alert('Error', 'Invalid Response:\n' + JSON.stringify(data));
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to send message: ' + (error instanceof Error ? error.message : String(error)));
-      console.error(error);
+      Alert.alert('Error', `Failed to send message to ${BACKEND_URL}: ` + (error instanceof Error ? error.message : String(error)));
+      console.error('Chat request failed:', BACKEND_URL, error);
     } finally {
       setIsProcessing(false);
     }
@@ -198,15 +231,23 @@ export default function ChatScreen() {
       }
     } else {
       try {
-        await Audio.requestPermissionsAsync();
-        await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-        const { recording } = await Audio.Recording.createAsync(
-          Audio.RecordingOptionsPresets.HIGH_QUALITY
-        );
-        setRecording(recording);
+        console.log('Requesting recording permissions...');
+        const { granted } = await requestRecordingPermissionsAsync();
+        if (!granted) {
+          Alert.alert('Permission Required', 'Microphone permission is needed to record audio.');
+          return;
+        }
+        console.log('Permissions granted, setting audio mode...');
+        await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+        console.log('Preparing recorder...');
+        await recorder.prepareToRecordAsync();
+        console.log('Starting recording...');
+        recorder.record();
         setIsRecording(true);
+        console.log('Recording started successfully');
       } catch (err) {
         console.error('Failed to start recording', err);
+        Alert.alert('Recording Error', 'Failed to start recording: ' + (err instanceof Error ? err.message : String(err)));
       }
     }
   };
@@ -221,25 +262,35 @@ export default function ChatScreen() {
       return;
     }
 
-    if (!recording) return;
+    if (!isRecording) return;
 
     setIsRecording(false);
     setIsProcessing(true);
     try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI(); 
-      setRecording(null);
+      console.log('Stopping recorder...');
+      try {
+        await recorder.stop();
+      } catch (stopErr) {
+        console.error('Error stopping recorder:', stopErr);
+      }
+      const uri = recorder.uri;
+      console.log('Recording stopped, uri:', uri);
       
-      if (!uri) return;
+      if (!uri) {
+        console.error('No recording URI available');
+        Alert.alert('Error', 'Recording failed — no audio file was created.');
+        return;
+      }
 
       const formData = new FormData();
       // @ts-ignore
       formData.append('file', { uri, name: 'audio.m4a', type: 'audio/m4a' });
 
-      const response = await fetch(`${BACKEND_URL}/transcribe`, {
+      console.log('Uploading audio to:', `${BACKEND_URL}/transcribe`);
+      const response = await fetchWithTimeout(`${BACKEND_URL}/transcribe`, {
         method: 'POST',
         body: formData,
-      });
+      }, 30000); // 30s for audio upload
       
       const data = await response.json();
       
@@ -255,7 +306,7 @@ export default function ChatScreen() {
 
     } catch (error) {
       console.error('Audio processing failed', error);
-      Alert.alert('Error', 'Failed to process audio.');
+      Alert.alert('Error', `Failed to process audio (${BACKEND_URL}): ` + (error instanceof Error ? error.message : String(error)));
     } finally {
       setIsProcessing(false);
     }
@@ -378,20 +429,32 @@ export default function ChatScreen() {
             placeholderTextColor="#999"
           />
           
-          {inputText.trim().length > 0 ? (
-            <TouchableOpacity onPress={() => sendMessage(inputText)} style={styles.sendBtn}>
-              <Ionicons name="arrow-up" size={20} color="#fff" />
-            </TouchableOpacity>
-          ) : (
+          {isRecording ? (
             <TouchableOpacity 
-              onPress={isRecording ? stopRecording : startRecording}
-              style={[styles.micBtn, isRecording ? styles.micBtnRecording : null]}
+              onPress={stopRecording}
+              style={[styles.micBtn, styles.micBtnRecording]}
               disabled={isProcessing}
             >
               {isProcessing ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
-                <Ionicons name={isRecording ? "stop" : "mic"} size={20} color="#fff" />
+                <Ionicons name="stop" size={20} color="#fff" />
+              )}
+            </TouchableOpacity>
+          ) : inputText.trim().length > 0 ? (
+            <TouchableOpacity onPress={() => sendMessage(inputText)} style={styles.sendBtn}>
+              <Ionicons name="arrow-up" size={20} color="#fff" />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity 
+              onPress={startRecording}
+              style={styles.micBtn}
+              disabled={isProcessing}
+            >
+              {isProcessing ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Ionicons name="mic" size={20} color="#fff" />
               )}
             </TouchableOpacity>
           )}
