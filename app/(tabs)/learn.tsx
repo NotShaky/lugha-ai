@@ -1,6 +1,7 @@
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -163,6 +164,7 @@ const drills = [
 ];
 
 export default function LearnScreen() {
+  const router = useRouter();
   const [expandedLetter, setExpandedLetter] = useState<number | null>(null);
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
@@ -171,6 +173,13 @@ export default function LearnScreen() {
   const textColor = theme.text;
   const mutedTextColor = colorScheme === 'dark' ? '#B8B8BE' : '#555';
   const subTextColor = '#8E8E93';
+
+  const handleStartDrills = () => {
+    router.push({
+      pathname: '/chat/[id]',
+      params: { id: 'drills', title: 'Practice Drills' },
+    });
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor }]}>
@@ -294,20 +303,17 @@ export default function LearnScreen() {
           </View>
         ))}
 
-        <Text style={[styles.sectionTitle, { color: textColor }]}>Quick Drills</Text>
-        <View style={styles.drillStack}>
-          {drills.map((drill, index) => (
-            <TouchableOpacity key={drill.prompt} style={[styles.drillCard, { backgroundColor: cardBg }]} activeOpacity={0.8}>
-              <View style={styles.drillHeader}>
-                <Text style={styles.drillBadge}>Task {index + 1}</Text>
-                <Ionicons name="create-outline" size={16} color="#0A9396" />
-              </View>
-              <Text style={[styles.drillPrompt, { color: textColor }]}>{drill.prompt}</Text>
-              <Text style={[styles.drillAnswerLabel, { color: subTextColor }]}>Suggested answer</Text>
-              <Text style={styles.drillAnswer}>{drill.answer}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
+        <Text style={[styles.sectionTitle, { color: textColor }]}>Drills</Text>
+        <TouchableOpacity style={styles.drillStartCard} onPress={handleStartDrills} activeOpacity={0.8}>
+          <View style={styles.drillStartContent}>
+            <Ionicons name="play-circle-outline" size={32} color="#007AFF" />
+            <View style={styles.drillStartText}>
+              <Text style={[styles.drillStartTitle, { color: textColor }]}>Start Practice Drill</Text>
+              <Text style={[styles.drillStartDesc, { color: subTextColor }]}>Test your skills with interactive drills. Type or speak your answers!</Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={24} color="#007AFF" />
+        </TouchableOpacity>
 
         <TouchableOpacity style={styles.challengeCard} activeOpacity={0.9}>
           <View style={styles.challengeContent}>
@@ -550,6 +556,35 @@ const styles = StyleSheet.create({
   drillStack: {
     gap: 10,
     marginBottom: 8,
+  },
+  drillStartCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 14,
+    backgroundColor: '#EBF2FF',
+    marginBottom: 12,
+    borderWidth: 1.5,
+    borderColor: '#007AFF',
+    gap: 12,
+  },
+  drillStartContent: {
+    flexDirection: 'row',
+    flex: 1,
+    alignItems: 'center',
+    gap: 12,
+  },
+  drillStartText: {
+    flex: 1,
+  },
+  drillStartTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  drillStartDesc: {
+    fontSize: 13,
+    lineHeight: 18,
   },
   drillCard: {
     borderRadius: 14,

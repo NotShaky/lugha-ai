@@ -78,6 +78,22 @@ interface Message {
   timestamp: Date;
 }
 
+// --- Drills Data ---
+const drills = [
+  {
+    prompt: 'Build: "This is a pen"',
+    answer: 'هٰذَا قَلَمٌ',
+  },
+  {
+    prompt: 'Translate: أَيْنَ الْبَيْتُ؟',
+    answer: 'Where is the house?',
+  },
+  {
+    prompt: 'Build: "I have a notebook"',
+    answer: 'عِنْدِي دَفْتَرٌ',
+  },
+];
+
 // Parse AI reply into separate correction + reply messages
 function parseAiReply(reply: string, baseId: string): Message[] {
   const msgs: Message[] = [];
@@ -113,17 +129,31 @@ function parseAiReply(reply: string, baseId: string): Message[] {
 
 export default function ChatScreen() {
   const router = useRouter();
-  const { title } = useLocalSearchParams();
+  const { title, id } = useLocalSearchParams();
+  const isDrillMode = id === 'drills';
   
   // --- State ---
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 'welcome',
-      text: 'Ahlan! I am Lugha AI. How can I help you practice Arabic today?',
-      sender: 'ai',
-      timestamp: new Date(),
-    },
-  ]);
+  const [currentDrillIndex, setCurrentDrillIndex] = useState(0);
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (isDrillMode) {
+      return [
+        {
+          id: 'welcome',
+          text: `Ready for practice drills? Here's your first challenge:\n\n${drills[0].prompt}`,
+          sender: 'ai',
+          timestamp: new Date(),
+        },
+      ];
+    }
+    return [
+      {
+        id: 'welcome',
+        text: 'Ahlan! I am Lugha AI. How can I help you practice Arabic today?',
+        sender: 'ai',
+        timestamp: new Date(),
+      },
+    ];
+  });
   const [inputText, setInputText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -257,6 +287,66 @@ export default function ChatScreen() {
     setIsProcessing(true);
 
     try {
+      // --- Drill Mode Handler ---
+      if (isDrillMode) {
+        const currentDrill = drills[currentDrillIndex];
+        
+        // Remove Arabic diacritical marks (harakat) so حذا قلم matches حٰذَا قَلَمٌ
+        const removeHarakat = (str: string): string => {
+          return str
+            .replace(/[\u064B-\u0652\u0670]/g, '') // Remove all harakat
+            .toLowerCase()
+            .trim()
+            .replace(/\s+/g, ' '); // Normalize whitespace
+        };
+        
+        const userAnswer = removeHarakat(text);
+        const expectedAnswer = removeHarakat(currentDrill.answer);
+        
+        // Check if answers match exactly or if one contains the other
+        const isCorrect = userAnswer === expectedAnswer || 
+                         userAnswer.includes(expectedAnswer) || 
+                         expectedAnswer.includes(userAnswer);
+        
+        if (isCorrect) {
+          const nextIndex = currentDrillIndex + 1;
+          if (nextIndex < drills.length) {
+            // Move to next drill
+            setCurrentDrillIndex(nextIndex);
+            const feedback = `✓ Correct! Well done!\n\nNext drill:`+ `\n\n${drills[nextIndex].prompt}`;
+            const aiMsg: Message = { 
+              id: Date.now().toString() + '_ai', 
+              text: feedback, 
+              sender: 'ai', 
+              timestamp: new Date() 
+            };
+            setMessages(prev => [...prev, aiMsg]);
+          } else {
+            // All drills completed
+            const feedback = `✓ Correct! Excellent work!\n\n🎉 You've completed all practice drills!\n\nGreat job practicing Arabic!`;
+            const aiMsg: Message = { 
+              id: Date.now().toString() + '_ai', 
+              text: feedback, 
+              sender: 'ai', 
+              timestamp: new Date() 
+            };
+            setMessages(prev => [...prev, aiMsg]);
+          }
+        } else {
+          const feedback = `Not quite. The suggested answer is:\n\n${currentDrill.answer}\n\nTry again or move to the next drill by typing 'next'`;
+          const aiMsg: Message = { 
+            id: Date.now().toString() + '_ai', 
+            text: feedback, 
+            sender: 'ai', 
+            timestamp: new Date() 
+          };
+          setMessages(prev => [...prev, aiMsg]);
+        }
+        setIsProcessing(false);
+        return;
+      }
+
+      // --- Regular Chat Mode ---
       console.log(`Sending to: ${BACKEND_URL}/chat`);
       const response = await fetchWithTimeout(`${BACKEND_URL}/chat`, {
         method: 'POST',
@@ -313,17 +403,11 @@ export default function ChatScreen() {
             const data = await res.json();
 
             if (data.text) {
-              const userMsg: Message = { id: Date.now().toString(), text: data.text, sender: 'user', timestamp: new Date() };
-              setMessages(prev => [...prev, userMsg]);
-            }
-            if (data.reply) {
-              const aiMsgs = parseAiReply(data.reply, Date.now().toString());
-              setMessages(prev => [...prev, ...aiMsgs]);
+              await sendMessage(data.text);
             }
           } catch (error) {
             console.error('Web audio processing failed', error);
             Alert.alert('Error', 'Failed to process audio.');
-          } finally {
             setIsProcessing(false);
           }
         };
@@ -400,19 +484,12 @@ export default function ChatScreen() {
       const data = await response.json();
       
       if (data.text) {
-        const userMsg: Message = { id: Date.now().toString(), text: data.text, sender: 'user', timestamp: new Date() };
-        setMessages(prev => [...prev, userMsg]);
-      }
-
-      if (data.reply) {
-        const aiMsgs = parseAiReply(data.reply, Date.now().toString());
-        setMessages(prev => [...prev, ...aiMsgs]);
+        await sendMessage(data.text);
       }
 
     } catch (error) {
       console.error('Audio processing failed', error);
       Alert.alert('Error', `Failed to process audio (${BACKEND_URL}): ` + (error instanceof Error ? error.message : String(error)));
-    } finally {
       setIsProcessing(false);
     }
   };
