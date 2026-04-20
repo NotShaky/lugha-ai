@@ -58,11 +58,17 @@ npx expo start
 
 Scan the QR code with Expo Go on your phone.
 
-> **Note:** Your phone and computer must be on the same Wi-Fi network. If you change networks, update `BACKEND_URL` in `app/chat/[id].tsx` with your new local IP address.
+> **Note:** Your phone and computer must be on the same Wi-Fi network. The app auto-detects your local host IP in Expo Go. If needed, you can override it by creating a `.env` file in the project root with:
+> ```bash
+> EXPO_PUBLIC_BACKEND_URL=http://YOUR_LOCAL_IP:8001
+> ```
 
 ## Project Structure
 
-- `app/` — Expo Router screens (tabs, chat)
+- `app/` — Expo Router screens
+- `app/(tabs)/index.tsx` — Home tab (chat entry)
+- `app/(tabs)/learn.tsx` — Learn tab (all learning sections)
+- `app/chat/[id].tsx` — Chat conversation screen
 - `backend/` — FastAPI server (Groq AI integration)
 - `components/` — Reusable React Native components
 - `constants/` — Theme colors and config

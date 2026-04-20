@@ -6,6 +6,7 @@ import {
   setAudioModeAsync,
   useAudioRecorder,
 } from 'expo-audio';
+import Constants from 'expo-constants';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -24,9 +25,32 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 // --- Configuration ---
-const BACKEND_URL = Platform.OS === 'web' 
-  ? 'http://localhost:8001' 
-  : 'http://192.168.0.161:8001';
+const getBackendUrl = () => {
+  if (Platform.OS === 'web') return 'http://localhost:8001';
+
+  try {
+    const legacyManifest = Constants.manifest as { debuggerHost?: string } | null;
+    const hostUri =
+      Constants.expoConfig?.hostUri ??
+      Constants.manifest2?.extra?.expoGo?.debuggerHost ??
+      legacyManifest?.debuggerHost;
+    const host = hostUri?.split(':')[0];
+
+    if (host) {
+      // Android emulator maps localhost to 10.0.2.2
+      if (Platform.OS === 'android' && host === 'localhost') {
+        return 'http://10.0.2.2:8001';
+      }
+      return `http://${host}:8001`;
+    }
+  } catch {
+    // Fallback handled below.
+  }
+
+  return 'http://localhost:8001';
+};
+
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL ?? getBackendUrl();
 
 const FETCH_TIMEOUT_MS = 15000; // 15 second timeout
 
@@ -45,21 +69,6 @@ const fetchWithTimeout = (url: string, options: RequestInit, timeoutMs = FETCH_T
       .finally(() => clearTimeout(timer));
   });
 };
-
-// const getBackendUrl = () => {
-//   try {
-//     const debuggerHost = Constants.expoConfig?.hostUri ?? Constants.manifest2?.extra?.expoGo?.debuggerHost ?? Constants.manifest?.debuggerHost;
-//     const localhost = debuggerHost?.split(':')[0] ?? 'localhost';
-//     if (Platform.OS === 'android' && localhost === 'localhost') {
-//       return 'http://10.0.2.2:8000';
-//     }
-//     return `http://${localhost}:8000`;
-//   } catch (e) {
-//     return 'http://localhost:8000';
-//   }
-// };
-
-// const BACKEND_URL = getBackendUrl();
 
 interface Message {
   id: string;
