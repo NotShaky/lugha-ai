@@ -576,7 +576,20 @@ export default function ChatScreen() {
               >
                 <View style={styles.correctionToggle}>
                   <Text style={styles.correctionLabel}>✏️ {isExpanded ? 'Hide Correction' : 'Show Correction'}</Text>
-                  <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color="#F59E0B" />
+                  <View style={styles.correctionActions}>
+                    <TouchableOpacity
+                      onPress={() => speakArabic(item.text.replace(/^✏️\s*Correction:?\s*/i, ''), item.id)}
+                      style={styles.correctionAudioBtn}
+                      activeOpacity={0.6}
+                    >
+                      <Ionicons
+                        name={speakingId === item.id ? 'stop-circle' : 'volume-medium'}
+                        size={16}
+                        color={speakingId === item.id ? '#FF3B30' : '#F59E0B'}
+                      />
+                    </TouchableOpacity>
+                    <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={16} color="#F59E0B" />
+                  </View>
                 </View>
                 {isExpanded && (
                   <Text style={styles.correctionText}>{item.text.replace(/^✏️\s*Correction:?\s*/i, '')}</Text>
@@ -769,6 +782,14 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 2,
     borderLeftWidth: 3,
     borderLeftColor: '#FFC107',
+  },
+  correctionActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  correctionAudioBtn: {
+    padding: 4,
   },
   correctionToggle: {
     flexDirection: 'row',
