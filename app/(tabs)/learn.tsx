@@ -1,18 +1,37 @@
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
+import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+// --- Configuration ---
+const getBackendUrl = () => {
+  if (Platform.OS === 'web') return 'http://localhost:8001';
+  try {
+    const legacyManifest = Constants.manifest as { debuggerHost?: string } | null;
+    const hostUri = Constants.expoConfig?.hostUri ?? Constants.manifest2?.extra?.expoGo?.debuggerHost ?? legacyManifest?.debuggerHost;
+    const host = hostUri?.split(':')[0];
+    if (host) {
+      if (Platform.OS === 'android' && host === 'localhost') return 'http://10.0.2.2:8001';
+      return `http://${host}:8001`;
+    }
+  } catch {}
+  return 'http://localhost:8001';
+};
+
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL ?? getBackendUrl();
 
 const fundamentals = [
   { title: 'Writing Direction', icon: 'arrow-back', desc: 'Arabic is written and read from right to left (RTL).' },
   { title: 'Letter Forms', icon: 'swap-horizontal', desc: 'Most letters change shape depending on their position in a word: initial, medial, final, or isolated.' },
   { title: 'Vowels (Harakat)', icon: 'musical-note', desc: 'Short vowels are diacritical marks placed above or below letters: Fatha (َ), Kasra (ِ), Damma (ُ).' },
   { title: 'Connecting Letters', icon: 'link', desc: 'Most Arabic letters connect to the next letter. Six letters (ا د ذ ر ز و) only connect to the right.' },
-  { title: 'Shadda (ّ)', icon: 'layers', desc: 'A doubled consonant, shown by the mark ّ above a letter. It makes the letter sound stronger.' },
-  { title: 'Sukoon (ْ)', icon: 'remove-circle', desc: 'A small circle above a letter meaning no vowel follows that consonant.' },
+  { title: 'Shadda ( ّ  )', icon: 'layers', desc: 'A doubled consonant, shown by the mark ّ above a letter. It makes the letter sound stronger.' },
+  { title: 'Sukoon (ـْ)', icon: 'remove-circle', desc: 'A small circle above a letter meaning no vowel follows that consonant.' },
 ];
 
 const arabicLetters = [
@@ -163,6 +182,16 @@ const drills = [
   },
 ];
 
+// --- Fix: Spelled-out Arabic names so TTS doesn't just read the short sounds ---
+const letterNamesArabic: Record<string, string> = {
+  'ا': 'أَلِف', 'ب': 'بَاء', 'ت': 'تَاء', 'ث': 'ثَا', 'ج': 'جِييم',
+  'ح': 'حَ', 'خ': 'خَاي', 'د': 'دَال', 'ذ': 'ذَال', 'ر': 'رَاا',
+  'ز': 'زَاا', 'س': 'سِيين', 'ش': 'شِيين', 'ص': 'صَاد', 'ض': 'ضَاد',
+  'ط': 'طَاء', 'ظ': 'ظَاء', 'ع': 'عَيْن', 'غ': 'غَيْن', 'ف': 'فَاا',
+  'ق': 'قَاءف', 'ك': 'كَاف', 'ل': 'لَام', 'م': 'مِييم', 'ن': 'نُوون',
+  'ه': 'هَا', 'و': 'وَاو', 'ي': 'يَا'
+};
+
 export default function LearnScreen() {
   const router = useRouter();
   const [expandedLetter, setExpandedLetter] = useState<number | null>(null);
@@ -173,6 +202,94 @@ export default function LearnScreen() {
   const textColor = theme.text;
   const mutedTextColor = colorScheme === 'dark' ? '#B8B8BE' : '#555';
   const subTextColor = '#8E8E93';
+
+  // --- Audio State & Refs ---
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const currentPlayerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
+  const currentWebPlayerRef = useRef<HTMLAudioElement | null>(null);
+
+  const stopPlayingAudio = () => {
+    if (currentPlayerRef.current) {
+      currentPlayerRef.current.remove();
+      currentPlayerRef.current = null;
+    }
+    if (currentWebPlayerRef.current) {
+      currentWebPlayerRef.current.pause();
+      currentWebPlayerRef.current.currentTime = 0;
+      currentWebPlayerRef.current = null;
+    }
+    setPlayingId(null);
+  };
+
+  const playAudio = async (text: string, id: string, rate: string = '-10%') => {
+    if (playingId === id) {
+      stopPlayingAudio();
+      return;
+    }
+    stopPlayingAudio();
+
+    try {
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+    } catch (e) {
+      console.warn('Failed to set audio mode:', e);
+    }
+
+    setPlayingId(id);
+
+    try {
+      if (Platform.OS === 'web') {
+        const response = await fetch(`${BACKEND_URL}/tts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          // Send the requested rate to the backend
+          body: JSON.stringify({ text, voice: 'ar-SA-HamedNeural', rate }), 
+        });
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        currentWebPlayerRef.current = audio;
+        audio.onended = () => { setPlayingId(null); URL.revokeObjectURL(url); };
+        audio.play();
+      } else {
+        // Send the requested rate in the GET URL
+        const ttsUrl = `${BACKEND_URL}/tts?text=${encodeURIComponent(text)}&voice=ar-SA-HamedNeural&rate=${encodeURIComponent(rate)}`;
+        const player = createAudioPlayer({ uri: ttsUrl });
+        currentPlayerRef.current = player;
+        player.play();
+
+        let hasStartedPlaying = false;
+        let checkCount = 0;
+
+        const checkInterval = setInterval(() => {
+          // Force quit if another audio started
+          if (currentPlayerRef.current !== player || playingId !== id) {
+            clearInterval(checkInterval);
+            return;
+          }
+
+          if (player.playing) {
+            hasStartedPlaying = true;
+          }
+
+          checkCount++;
+          const networkTimeout = !hasStartedPlaying && checkCount > 40;
+
+          // Only remove if it naturally stopped playing AFTER starting
+          if ((hasStartedPlaying && !player.playing) || networkTimeout) {
+            clearInterval(checkInterval);
+            if (currentPlayerRef.current === player) {
+              player.remove();
+              currentPlayerRef.current = null;
+              setPlayingId(null);
+            }
+          }
+        }, 250);
+      }
+    } catch (error) {
+      console.error('TTS error:', error);
+      setPlayingId(null);
+    }
+  };
 
   const handleStartDrills = () => {
     router.push({
@@ -226,6 +343,23 @@ export default function LearnScreen() {
               <Text style={styles.letterArabic}>{item.letter}</Text>
               <Text style={[styles.letterName, { color: textColor }]}>{item.name}</Text>
               <Text style={[styles.letterSound, { color: subTextColor }]}>/{item.sound}/</Text>
+
+              <TouchableOpacity 
+                style={styles.playIconBtn}
+                onPress={(e) => { 
+                  e.stopPropagation(); 
+                  // Look up the full word "صَاد", fallback to the letter if missing
+                  const textToSpeak = letterNamesArabic[item.letter] || item.letter;
+                  playAudio(textToSpeak, `letter-${idx}`, '-20%'); 
+                }}
+              >
+                <Ionicons 
+                  name={playingId === `letter-${idx}` ? "stop-circle" : "volume-medium"} 
+                  size={18} 
+                  color={playingId === `letter-${idx}` ? '#FF3B30' : '#007AFF'} 
+                />
+              </TouchableOpacity>
+
               {expandedLetter === idx && (
                 <View style={styles.formsContainer}>
                   <View style={styles.formRow}>
@@ -268,6 +402,18 @@ export default function LearnScreen() {
             {themeItem.words.map((word) => (
               <View key={`${themeItem.title}-${word.ar}`} style={styles.wordRow}>
                 <Text style={styles.wordArabic}>{word.ar}</Text>
+
+                <TouchableOpacity 
+                  style={styles.inlinePlayBtn}
+                  onPress={() => playAudio(word.ar, `vocab-${word.ar}`, '-40%')}
+                >
+                  <Ionicons 
+                    name={playingId === `vocab-${word.ar}` ? "stop-circle" : "volume-medium"} 
+                    size={20} 
+                    color={playingId === `vocab-${word.ar}` ? '#FF3B30' : '#007AFF'} 
+                  />
+                </TouchableOpacity>
+
                 <View style={styles.wordMeta}>
                   <Text style={[styles.wordEnglish, { color: textColor }]}>{word.en}</Text>
                   <Text style={[styles.wordTranslit, { color: subTextColor }]}>{word.tr}</Text>
@@ -284,7 +430,19 @@ export default function LearnScreen() {
             <Text style={styles.formula}>{pattern.formula}</Text>
             {pattern.examples.map((ex) => (
               <View key={`${pattern.title}-${ex.ar}`} style={styles.exampleCard}>
-                <Text style={styles.exampleArabic}>{ex.ar}</Text>
+                
+                <View style={styles.sentenceHeaderRow}>
+                  <Text style={styles.exampleArabic}>{ex.ar}</Text>
+                  
+                  <TouchableOpacity onPress={() => playAudio(ex.ar, `sentence-${ex.ar}`)}>
+                    <Ionicons 
+                      name={playingId === `sentence-${ex.ar}` ? "stop-circle" : "volume-medium"} 
+                      size={20} 
+                      color={playingId === `sentence-${ex.ar}` ? '#FF3B30' : '#007AFF'} 
+                    />
+                  </TouchableOpacity>
+                </View>
+
                 <Text style={[styles.exampleEnglish, { color: subTextColor }]}>{ex.en}</Text>
               </View>
             ))}
@@ -313,15 +471,6 @@ export default function LearnScreen() {
             </View>
           </View>
           <Ionicons name="chevron-forward" size={24} color="#007AFF" />
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.challengeCard} activeOpacity={0.9}>
-          <View style={styles.challengeContent}>
-            <Text style={styles.challengeTitle}>Today&apos;s Goal</Text>
-            <Text style={styles.challengeWord}>Make 5 original Arabic sentences</Text>
-            <Text style={styles.challengeDesc}>Use at least one pattern from Sentence Studio and two new vocabulary words.</Text>
-          </View>
-          <Ionicons name="rocket-outline" size={36} color="rgba(255,255,255,0.9)" />
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -619,39 +768,19 @@ const styles = StyleSheet.create({
     color: '#001219',
     textAlign: 'right',
   },
-  challengeCard: {
+
+  playIconBtn: {
+    marginTop: 8,
+    padding: 4,
+  },
+  inlinePlayBtn: {
+    paddingHorizontal: 10,
+  },
+  sentenceHeaderRow: {
     flexDirection: 'row',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#005F73',
-    marginTop: 14,
-    marginBottom: 6,
-    shadowColor: '#005F73',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  challengeContent: {
-    flex: 1,
-  },
-  challengeTitle: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.8)',
-    fontWeight: '600',
-    textTransform: 'uppercase',
+    gap: 12,
     marginBottom: 4,
-  },
-  challengeWord: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: '#FFF',
-    marginBottom: 4,
-  },
-  challengeDesc: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.9)',
-    lineHeight: 20,
   },
 });

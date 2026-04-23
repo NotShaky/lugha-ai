@@ -40,6 +40,8 @@ class ChatRequest(BaseModel):
 class TTSRequest(BaseModel):
     text: str
     voice: str = "ar-SA-HamedNeural"
+    rate: str = "-10%"  # Default to slightly slower for better clarity
+    pitch: str = "+0Hz"
 
 # Groq Configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -169,7 +171,13 @@ async def text_to_speech(request: TTSRequest):
     """Convert Arabic text to speech using Microsoft Edge TTS."""
     temp_file = f"tts_{uuid.uuid4().hex}.mp3"
     try:
-        communicate = edge_tts.Communicate(request.text, request.voice, rate="-10%")
+        # Pass the rate and pitch to the TTS engine!
+        communicate = edge_tts.Communicate(
+            request.text, 
+            request.voice, 
+            rate=request.rate, 
+            pitch=request.pitch
+        )
         await communicate.save(temp_file)
         return FileResponse(
             temp_file,
@@ -192,11 +200,22 @@ async def text_to_speech(request: TTSRequest):
         threading.Thread(target=cleanup, daemon=True).start()
 
 @app.get("/tts")
-async def text_to_speech_get(text: str, voice: str = "ar-SA-HamedNeural"):
+async def text_to_speech_get(
+    text: str, 
+    voice: str = "ar-SA-HamedNeural",
+    rate: str = "-10%",
+    pitch: str = "+0Hz"
+):
     """GET version for native audio players that can't POST."""
     temp_file = f"tts_{uuid.uuid4().hex}.mp3"
     try:
-        communicate = edge_tts.Communicate(text, voice, rate="-10%")
+        # Pass the rate and pitch to the TTS engine!
+        communicate = edge_tts.Communicate(
+            text, 
+            voice, 
+            rate=rate, 
+            pitch=pitch
+        )
         await communicate.save(temp_file)
         return FileResponse(
             temp_file,
