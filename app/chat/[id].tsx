@@ -162,8 +162,24 @@ export default function ChatScreen() {
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const currentPlayerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
+  const currentWebPlayerRef = useRef<HTMLAudioElement | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+
+  const stopPlayingAudio = () => {
+    // Stop native audio
+    if (currentPlayerRef.current) {
+      currentPlayerRef.current.remove();
+      currentPlayerRef.current = null;
+    }
+    // Stop web audio
+    if (currentWebPlayerRef.current) {
+      currentWebPlayerRef.current.pause();
+      currentWebPlayerRef.current.currentTime = 0;
+      currentWebPlayerRef.current = null;
+    }
+    setSpeakingId(null);
+  };
 
   // expo-audio recorder (native only)
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY, (status) => {
@@ -204,20 +220,14 @@ export default function ChatScreen() {
     const arabicText = getArabicText(text);
     if (!arabicText) return;
 
-    // If already speaking this message, stop
-    if (speakingId === messageId) {
-      if (currentPlayerRef.current) {
-        currentPlayerRef.current.remove();
-        currentPlayerRef.current = null;
-      }
-      setSpeakingId(null);
-      return;
-    }
+    const wasAlreadySpeakingThis = speakingId === messageId;
 
-    // Stop any current playback
-    if (currentPlayerRef.current) {
-      currentPlayerRef.current.remove();
-      currentPlayerRef.current = null;
+    // 1. ALWAYS stop whatever is currently playing
+    stopPlayingAudio();
+
+    // 2. If we tapped the same message that was already playing, just leave it stopped
+    if (wasAlreadySpeakingThis) {
+      return;
     }
 
     // Switch audio mode to playback
@@ -243,12 +253,22 @@ export default function ChatScreen() {
         const blob = await response.blob();
         const url = URL.createObjectURL(blob);
         const audio = new Audio(url);
+        
+        // Save the web audio reference so we can stop it later
+        currentWebPlayerRef.current = audio;
+
         audio.onended = () => {
-          setSpeakingId(null);
+          if (currentWebPlayerRef.current === audio) {
+            setSpeakingId(null);
+            currentWebPlayerRef.current = null;
+          }
           URL.revokeObjectURL(url);
         };
         audio.onerror = () => {
-          setSpeakingId(null);
+          if (currentWebPlayerRef.current === audio) {
+            setSpeakingId(null);
+            currentWebPlayerRef.current = null;
+          }
           URL.revokeObjectURL(url);
         };
         audio.play();
@@ -393,6 +413,9 @@ export default function ChatScreen() {
   };
 
   const startRecording = async () => {
+    // Cut off any playing audio when the user starts recording
+    stopPlayingAudio();
+
     if (Platform.OS === 'web') {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
