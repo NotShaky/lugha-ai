@@ -5,7 +5,7 @@ An Arabic language learning app powered by AI. Practice conversations with an AI
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) (v18+)
-- [Python](https://www.python.org/) (v3.10+)
+- [Python](https://www.python.org/) (v3.12.10)
 - [Expo Go](https://expo.dev/go) app on your phone
 - A [Groq API key](https://console.groq.com/)
 

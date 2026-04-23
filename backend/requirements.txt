@@ -1,6 +1,8 @@
 fastapi
 uvicorn
 python-multipart
-python-dotenv
 groq
 edge-tts
+python-dotenv
+supabase
+redis

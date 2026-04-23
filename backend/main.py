@@ -4,8 +4,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 import shutil
-from typing import Optional
-import openai
 from groq import Groq
 from dotenv import load_dotenv
 from pathlib import Path
