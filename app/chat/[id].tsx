@@ -440,15 +440,15 @@ export default function ChatScreen() {
         }));
 
       // 2. Send the history along with the new text
+      // Call standard text chat endpoint
       const response = await fetchWithTimeout(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          text: text,
-          history: chatHistory 
+        body: JSON.stringify({
+          text,
+          session_id: id, // 👈 Send the chat route ID as the session ID!
         }),
-      });
-      console.log('Response status:', response.status);
+      }, 15000);
       
       if (!response.ok) {
         const errorText = await response.text();

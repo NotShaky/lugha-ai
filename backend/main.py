@@ -1,3 +1,4 @@
+import json
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,9 +12,11 @@ import edge_tts
 import asyncio
 import uuid
 from typing import Optional, List 
+from supabase import create_client, Client
+import redis
 
 # Load .env from the same directory as main.py
-env_path = Path(__file__).parent / ".env"
+env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(dotenv_path=env_path)
 
 app = FastAPI()
@@ -33,7 +36,7 @@ class HistoryMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     text: str
-    history: List[HistoryMessage] = [] # Allow frontend to pass history
+    session_id: str
 
 class TTSRequest(BaseModel):
     text: str
@@ -43,14 +46,31 @@ class TTSRequest(BaseModel):
 
 # Groq Configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
 # Debugging: Print status of API Key
 if GROQ_API_KEY:
-    print("✅ Groq API Key loaded successfully.")
+    print("Groq API Key loaded successfully.")
     client = Groq(api_key=GROQ_API_KEY)
 else:
-    print(f"❌ Groq API Key NOT found in {env_path}")
+    print(f"Groq API Key NOT found in {env_path}")
     client = None
+
+# Supabase Configuration
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase: Client | None = None
+if SUPABASE_URL and SUPABASE_KEY:
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    print("Supabase Connected.")
+
+# Redis Configuration
+REDIS_URL = os.getenv("REDIS_URL")
+redis_client = None
+if REDIS_URL:
+    # decode_responses=True ensures we get strings back instead of raw bytes
+    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+    print("Redis Connected.")
 
 SYSTEM_PROMPT = """You are a helpful and friendly Arabic language tutor. The user may write in Arabic, English, or a mix of both. You must ONLY use English and Arabic in your responses. NEVER use any other languages.
 NEVER repeat the same sentence, phrase, or word breakdown multiple times in a row. Do not get stuck in repetitive loops.
@@ -112,47 +132,60 @@ async def transcribe_audio(file: UploadFile = File(...)):
             os.remove(temp_filename)
 
 @app.post("/chat")
-async def chat_endpoint(request: ChatRequest):
-    print(f"Received chat request: {request.text}")
-    if not client:
-        print("Error: Client not initialized")
-        return {"reply": "Error: Groq API Key missing."}
+async def chat_with_ai(request: ChatRequest):
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=500, detail="Groq API key not configured")
 
-    try:
-        print("Calling Groq API...")
-        
-        # 1. Start with the System Prompt
-        api_messages = [
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT
-            }
-        ]
-        
-        # 2. Append the conversation history from the frontend
-        for msg in request.history:
-            api_messages.append({
-                "role": msg.role,
-                "content": msg.content
-            })
+    print(f"Calling Groq API for session: {request.session_id}...")
+    
+    # 1. Fetch the last 10 messages from Redis using the session_id
+    history_key = f"chat_history:{request.session_id}"
+    chat_history = []
+    
+    if redis_client:
+        stored_history = redis_client.get(history_key)
+        if stored_history:
+            chat_history = json.loads(stored_history)
             
-        # 3. Append the newest user message
-        api_messages.append({
-            "role": "user",
-            "content": request.text
-        })
+    # 2. Start with the System Prompt
+    api_messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT
+        }
+    ]
+    
+    # 3. Append the Redis conversation history
+    for msg in chat_history:
+        api_messages.append(msg)
+        
+    # 4. Append the newest user message
+    api_messages.append({
+        "role": "user",
+        "content": request.text
+    })
 
-        chat_completion = client.chat.completions.create(
-            messages=api_messages,
-            model="llama-3.3-70b-versatile",
-            temperature=0.5,
-        )
-        reply = chat_completion.choices[0].message.content or "No content in response (None)."
-        print(f"Success! Reply: {reply}")
-        return {"reply": reply}
-    except Exception as e:
-        print(f"Backend Exception: {e}")
-        return {"reply": f"Error: {str(e)}"}
+    # 5. Get the AI Response
+    chat_completion = client.chat.completions.create(
+        messages=api_messages,
+        model="llama-3.3-70b-versatile",
+        temperature=0.5,
+    )
+    
+    ai_response = chat_completion.choices[0].message.content
+    
+    # 6. Save the updated history back to Redis
+    if redis_client:
+        chat_history.append({"role": "user", "content": request.text})
+        chat_history.append({"role": "assistant", "content": ai_response})
+        
+        # Keep ONLY the last 10 messages to save space and context limits
+        chat_history = chat_history[-10:]
+        
+        # Save to Redis with a 24-hour expiration (86400 seconds)
+        redis_client.setex(history_key, 86400, json.dumps(chat_history))
+
+    return {"response": ai_response}
 
 @app.get("/")
 def read_root():
