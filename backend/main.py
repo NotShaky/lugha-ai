@@ -52,6 +52,16 @@ else:
     print(f"❌ Groq API Key NOT found in {env_path}")
     client = None
 
+SYSTEM_PROMPT = """You are a helpful and friendly Arabic language tutor. The user may write in Arabic, English, or a mix of both. You must ONLY use English and Arabic in your responses. NEVER use any other languages.
+NEVER repeat the same sentence, phrase, or word breakdown multiple times in a row. Do not get stuck in repetitive loops.
+If the user asks about an Arabic slang word (like Egyptian slang), explain its meaning in English clearly without necessarily trying to correct it to formal Arabic.
+If the user writes in English, provide the Arabic translation, and then provide a helpful breakdown in English explaining what the individual Arabic words mean.
+When mentioning Arabic words in your English explanation, ALWAYS write the actual Arabic script first, followed by its transliteration wrapped entirely in curly braces. Example: "The word أريد {Uridu} means I want." NEVER use a transliteration by itself without the Arabic script.
+If the user writes in Arabic, carefully evaluate it for mistakes. IF AND ONLY IF there is an actual grammar, spelling, or vocabulary mistake, your VERY FIRST LINE must be exactly: "✏️ Correction: [corrected Arabic] - [Brief English explanation of the mistake]". 
+If the user's Arabic is perfectly correct, DO NOT output a correction line at all.
+Make sure there is a blank line after the correction (if you made one). Then, reply normally in Arabic to continue the conversation. Keep your conversational answers concise. 
+Finally, add an English translation of ONLY your conversational reply on a new line in parentheses, exactly like: "(English: [translation of the Arabic reply])"."""
+
 @app.post("/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
     """
@@ -70,11 +80,13 @@ async def transcribe_audio(file: UploadFile = File(...)):
         # 2. Call Groq Whisper API if key exists
         if client:
             try:
-                # Transcribe Audio
+                # Transcribe Audio with a bias prompt!
                 audio_file = open(temp_filename, "rb")
                 transcript = client.audio.transcriptions.create(
                     model="whisper-large-v3", 
                     file=audio_file,
+                    #prompt to force Whisper to expect English and Arabic, preventing random languages
+                    prompt="The user is speaking either English or Arabic (العربية). Please transcribe exactly what they are saying."
                 )
                 print(f"Transcription: {transcript.text}")
 
@@ -113,7 +125,7 @@ async def chat_endpoint(request: ChatRequest):
         api_messages = [
             {
                 "role": "system",
-                "content": "You are a helpful and friendly Arabic language tutor. The user may write in Arabic, English, or a mix of both. If the user writes in English (e.g. asking how to say something in Arabic), respond helpfully with the Arabic translation, pronunciation guidance, and explanation. If the user writes in Arabic and makes any grammar, spelling, or vocabulary mistakes, first correct them by writing: \"✏️ Correction: [corrected version]\" with a brief explanation of the mistake. Then reply normally in Arabic to continue the conversation. Keep your answers concise. After your Arabic response, always add an English translation on a new line in parentheses, like: (English: ...)"
+                "content": SYSTEM_PROMPT
             }
         ]
         
@@ -133,6 +145,7 @@ async def chat_endpoint(request: ChatRequest):
         chat_completion = client.chat.completions.create(
             messages=api_messages,
             model="llama-3.3-70b-versatile",
+            temperature=0.5,
         )
         reply = chat_completion.choices[0].message.content or "No content in response (None)."
         print(f"Success! Reply: {reply}")

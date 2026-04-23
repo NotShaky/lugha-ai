@@ -148,7 +148,7 @@ export default function ChatScreen() {
     return [
       {
         id: 'welcome',
-        text: 'Ahlan! I am Lugha AI. How can I help you practice Arabic today?',
+        text: ' أهلا وسهلا' + '\n\n' + "Welcome to Lugha AI Chat! Practice Arabic conversation with me. You can type in English or Arabic, or use the microphone to speak. Let's get started!",
         sender: 'ai',
         timestamp: new Date(),
       },
@@ -161,6 +161,9 @@ export default function ChatScreen() {
   const [showTranslations, setShowTranslations] = useState(true);
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
+
+  //--- Refs ---
+  const speakingIdRef = useRef<string | null>(null); 
   const currentPlayerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
   const currentWebPlayerRef = useRef<HTMLAudioElement | null>(null);
   const flatListRef = useRef<FlatList>(null);
@@ -179,6 +182,7 @@ export default function ChatScreen() {
       currentWebPlayerRef.current = null;
     }
     setSpeakingId(null);
+    speakingIdRef.current = null; // Clear the sequence ref
   };
 
   // expo-audio recorder (native only)
@@ -210,27 +214,49 @@ export default function ChatScreen() {
 
   // --- Functions ---
 
-  // Extract Arabic text from a message for TTS
+  // Extract text for TTS (strips translation block at bottom of main chat)
   const getArabicText = (text: string): string => {
-    // Remove English translation part
-    return text.replace(/\(English:[\s\S]*?\)\s*$/, '').trim();
+    return text
+      .replace(/\(English:[\s\S]*?\)\s*$/, '') // Strips the English translation at the bottom
+      .replace(/\{[\s\S]*?\}/g, '')            // NEW: Strips transliterations inside {curly braces}
+      .trim();
+  };
+
+  // Helper to split text into English and Arabic chunks
+  const segmentTextByLanguage = (text: string) => {
+    // Splits by sequences of English letters (including punctuation/spaces between them)
+    const parts = text.split(/([a-zA-Z0-9]+(?:[\s.,!?'"-]+[a-zA-Z0-9]+)*)/g);
+    const segments: { text: string; voice: string }[] = [];
+
+    parts.forEach(p => {
+      const trimmed = p.trim();
+      // Skip if empty or contains ONLY punctuation/symbols (Fixes the 500 Error!)
+      if (!trimmed || /^[^a-zA-Z0-9\u0600-\u06FF]+$/.test(trimmed)) return;
+      
+      if (/[a-zA-Z]/.test(trimmed)) {
+        // Use a clear English accent
+        segments.push({ text: trimmed, voice: 'en-GB-RyanNeural' }); 
+      } else {
+        // Default Arabic voice
+        segments.push({ text: trimmed, voice: 'ar-SA-HamedNeural' });
+      }
+    });
+    return segments;
   };
 
   const speakArabic = async (text: string, messageId: string) => {
-    const arabicText = getArabicText(text);
-    if (!arabicText) return;
+    const textToSpeak = getArabicText(text);
+    if (!textToSpeak) return;
 
-    const wasAlreadySpeakingThis = speakingId === messageId;
-
-    // 1. ALWAYS stop whatever is currently playing
-    stopPlayingAudio();
-
-    // 2. If we tapped the same message that was already playing, just leave it stopped
-    if (wasAlreadySpeakingThis) {
+    // If already speaking this exact message, stop it.
+    if (speakingId === messageId) {
+      stopPlayingAudio();
       return;
     }
 
-    // Switch audio mode to playback
+    // Stop anything else currently playing
+    stopPlayingAudio();
+
     try {
       await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
     } catch (e) {
@@ -238,62 +264,97 @@ export default function ChatScreen() {
     }
 
     setSpeakingId(messageId);
+    speakingIdRef.current = messageId;
 
-    try {
-      if (Platform.OS === 'web') {
-        // Web: fetch blob and play with HTML5 Audio
-        const response = await fetchWithTimeout(`${BACKEND_URL}/tts`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: arabicText }),
-        }, 20000);
+    // Split the text into Arabic and English chunks
+    const segments = segmentTextByLanguage(textToSpeak);
 
-        if (!response.ok) throw new Error(`TTS failed: ${response.status}`);
+    // Play each chunk sequentially
+    for (const segment of segments) {
+      // If the user cancelled or clicked another message mid-sentence, break the loop
+      if (speakingIdRef.current !== messageId) break;
 
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        
-        // Save the web audio reference so we can stop it later
-        currentWebPlayerRef.current = audio;
+      try {
+        if (Platform.OS === 'web') {
+          const response = await fetchWithTimeout(`${BACKEND_URL}/tts`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: segment.text, voice: segment.voice }),
+          }, 20000);
 
-        audio.onended = () => {
-          if (currentWebPlayerRef.current === audio) {
-            setSpeakingId(null);
-            currentWebPlayerRef.current = null;
-          }
-          URL.revokeObjectURL(url);
-        };
-        audio.onerror = () => {
-          if (currentWebPlayerRef.current === audio) {
-            setSpeakingId(null);
-            currentWebPlayerRef.current = null;
-          }
-          URL.revokeObjectURL(url);
-        };
-        audio.play();
-      } else {
-        // Native: use expo-audio player with GET endpoint URL
-        const ttsUrl = `${BACKEND_URL}/tts?text=${encodeURIComponent(arabicText)}`;
-        const player = createAudioPlayer({ uri: ttsUrl });
-        currentPlayerRef.current = player;
-        player.play();
+          if (!response.ok) throw new Error(`TTS failed: ${response.status}`);
 
-        // Clean up when done
-        const checkInterval = setInterval(() => {
-          if (!player.playing) {
-            clearInterval(checkInterval);
-            player.remove();
-            if (currentPlayerRef.current === player) {
-              currentPlayerRef.current = null;
-              setSpeakingId(null);
+          const blob = await response.blob();
+          const url = URL.createObjectURL(blob);
+
+          await new Promise<void>((resolve) => {
+            if (speakingIdRef.current !== messageId) {
+              URL.revokeObjectURL(url);
+              return resolve();
             }
-          }
-        }, 500);
+            const audio = new Audio(url);
+            currentWebPlayerRef.current = audio;
+
+            const onEnd = () => {
+              URL.revokeObjectURL(url);
+              resolve();
+            };
+            audio.onended = onEnd;
+            audio.onerror = onEnd;
+            audio.play();
+          });
+        } else {
+          // Native (iOS/Android)
+          const ttsUrl = `${BACKEND_URL}/tts?text=${encodeURIComponent(segment.text)}&voice=${encodeURIComponent(segment.voice)}`;
+          
+          await new Promise<void>((resolve) => {
+            if (speakingIdRef.current !== messageId) return resolve();
+
+            const player = createAudioPlayer({ uri: ttsUrl });
+            currentPlayerRef.current = player;
+            player.play();
+
+            let hasStartedPlaying = false;
+            let checkCount = 0;
+
+            const checkInterval = setInterval(() => {
+              // 1. If forcefully stopped by user
+              if (currentPlayerRef.current !== player || speakingIdRef.current !== messageId) {
+                clearInterval(checkInterval);
+                return resolve();
+              }
+
+              // 2. Track when it actually starts playing (to avoid skipping during buffering)
+              if (player.playing) {
+                hasStartedPlaying = true;
+              }
+
+              checkCount++;
+              // Fallback: If it's stuck buffering for over 10 seconds, skip to the next one
+              const networkTimeout = !hasStartedPlaying && checkCount > 40;
+
+              // 3. Move on only if it played and naturally finished, OR if the network timed out
+              if ((hasStartedPlaying && !player.playing) || networkTimeout) {
+                clearInterval(checkInterval);
+                if (currentPlayerRef.current === player) {
+                  player.remove();
+                  currentPlayerRef.current = null;
+                }
+                resolve();
+              }
+            }, 250); 
+          });
+        }
+      } catch (error) {
+        console.error('Segment TTS error:', error);
+        break; // Skip remaining chunks if one fails
       }
-    } catch (error) {
-      console.error('TTS error:', error);
+    }
+
+    // Clean up UI state if the whole sequence finished naturally
+    if (speakingIdRef.current === messageId) {
       setSpeakingId(null);
+      speakingIdRef.current = null;
     }
   };
 
