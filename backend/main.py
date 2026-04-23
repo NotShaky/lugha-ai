@@ -185,7 +185,7 @@ async def chat_with_ai(request: ChatRequest):
         # Save to Redis with a 24-hour expiration (86400 seconds)
         redis_client.setex(history_key, 86400, json.dumps(chat_history))
 
-    return {"response": ai_response}
+    return {"response": ai_response, "reply": ai_response}
 
 @app.get("/")
 def read_root():

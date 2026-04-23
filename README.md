@@ -51,7 +51,7 @@ The backend needs to be running before you use chat, voice transcription, or TTS
 
 ```bash
 cd backend
-uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+..\.venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 If you prefer to use a virtual environment, activate it first and then run the same command.

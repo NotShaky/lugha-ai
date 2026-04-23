@@ -458,9 +458,16 @@ export default function ChatScreen() {
 
       const data = await response.json();
       console.log('Response data:', data);
-      
-      if (data.reply) {
-        const aiMsgs = parseAiReply(data.reply, Date.now().toString());
+
+      // Backend may return either `reply` or `response` depending on version.
+      const aiReply = typeof data?.reply === 'string'
+        ? data.reply
+        : typeof data?.response === 'string'
+          ? data.response
+          : '';
+
+      if (aiReply) {
+        const aiMsgs = parseAiReply(aiReply, Date.now().toString());
         setMessages(prev => [...prev, ...aiMsgs]);
       } else {
         Alert.alert('Error', 'Invalid Response:\n' + JSON.stringify(data));
