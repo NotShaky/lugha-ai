@@ -12,6 +12,7 @@ from pathlib import Path
 import edge_tts
 import asyncio
 import uuid
+from typing import Optional, List 
 
 # Load .env from the same directory as main.py
 env_path = Path(__file__).parent / ".env"
@@ -28,12 +29,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class HistoryMessage(BaseModel):
+    role: str
+    content: str
+
 class ChatRequest(BaseModel):
     text: str
+    history: List[HistoryMessage] = [] # Allow frontend to pass history
 
 class TTSRequest(BaseModel):
     text: str
-    voice: str = "ar-SA-HamedNeural"  # Default: Saudi male voice
+    voice: str = "ar-SA-HamedNeural"
 
 # Groq Configuration
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -50,6 +56,7 @@ else:
 async def transcribe_audio(file: UploadFile = File(...)):
     """
     Receives an audio file and transcribes it using Groq Whisper.
+    Leaves the AI reply generation to the /chat endpoint!
     """
     temp_filename = f"temp_{file.filename}"
     
@@ -63,7 +70,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         # 2. Call Groq Whisper API if key exists
         if client:
             try:
-                # 2. Transcribe Audio
+                # Transcribe Audio
                 audio_file = open(temp_filename, "rb")
                 transcript = client.audio.transcriptions.create(
                     model="whisper-large-v3", 
@@ -71,31 +78,13 @@ async def transcribe_audio(file: UploadFile = File(...)):
                 )
                 print(f"Transcription: {transcript.text}")
 
-                # 3. Generate AI Response (Llama 3)
-                chat_completion = client.chat.completions.create(
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": "You are a helpful and friendly Arabic language tutor. The user may speak in Arabic, English, or a mix of both. If the user speaks in English (e.g. asking how to say something in Arabic), respond helpfully with the Arabic translation, pronunciation guidance, and explanation. If the user speaks in Arabic and makes any grammar, spelling, or vocabulary mistakes, first correct them by writing: \"✏️ Correction: [corrected version]\" with a brief explanation of the mistake. Then reply normally in Arabic to continue the conversation. Keep your answers concise. After your Arabic response, always add an English translation on a new line in parentheses, like: (English: ...)"
-                        },
-                        {
-                            "role": "user",
-                            "content": transcript.text,
-                        }
-                    ],
-                    model="llama-3.3-70b-versatile",
-                )
-                reply = chat_completion.choices[0].message.content
-                print(f"AI Reply: {reply}")
+                # Return ONLY the transcribed text so the frontend can send it to /chat
+                return {"text": transcript.text}
 
-                return {
-                    "text": transcript.text,
-                    "reply": reply
-                }
             except Exception as e:
                 print(f"Groq Error: {e}")
                 # Return the actual error to the frontend for debugging
-                return {"text": f"Error from Groq: {str(e)}", "reply": "Error generating reply."}
+                return {"text": f"Error from Groq: {str(e)}"}
         else:
              # MOCK RESPONSE for demonstration/testing without key
             mock_text = "أريد قهوة من فضلك (Mock: Add Groq Key)"
@@ -119,17 +108,30 @@ async def chat_endpoint(request: ChatRequest):
 
     try:
         print("Calling Groq API...")
+        
+        # 1. Start with the System Prompt
+        api_messages = [
+            {
+                "role": "system",
+                "content": "You are a helpful and friendly Arabic language tutor. The user may write in Arabic, English, or a mix of both. If the user writes in English (e.g. asking how to say something in Arabic), respond helpfully with the Arabic translation, pronunciation guidance, and explanation. If the user writes in Arabic and makes any grammar, spelling, or vocabulary mistakes, first correct them by writing: \"✏️ Correction: [corrected version]\" with a brief explanation of the mistake. Then reply normally in Arabic to continue the conversation. Keep your answers concise. After your Arabic response, always add an English translation on a new line in parentheses, like: (English: ...)"
+            }
+        ]
+        
+        # 2. Append the conversation history from the frontend
+        for msg in request.history:
+            api_messages.append({
+                "role": msg.role,
+                "content": msg.content
+            })
+            
+        # 3. Append the newest user message
+        api_messages.append({
+            "role": "user",
+            "content": request.text
+        })
+
         chat_completion = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful and friendly Arabic language tutor. The user may write in Arabic, English, or a mix of both. If the user writes in English (e.g. asking how to say something in Arabic), respond helpfully with the Arabic translation, pronunciation guidance, and explanation. If the user writes in Arabic and makes any grammar, spelling, or vocabulary mistakes, first correct them by writing: \"✏️ Correction: [corrected version]\" with a brief explanation of the mistake. Then reply normally in Arabic to continue the conversation. Keep your answers concise. After your Arabic response, always add an English translation on a new line in parentheses, like: (English: ...)"
-                },
-                {
-                    "role": "user",
-                    "content": request.text,
-                }
-            ],
+            messages=api_messages,
             model="llama-3.3-70b-versatile",
         )
         reply = chat_completion.choices[0].message.content or "No content in response (None)."

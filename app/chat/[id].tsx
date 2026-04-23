@@ -348,10 +348,24 @@ export default function ChatScreen() {
 
       // --- Regular Chat Mode ---
       console.log(`Sending to: ${BACKEND_URL}/chat`);
+      
+      // 1. Format the history for the API (only take the last 10 to save tokens)
+      const chatHistory = messages
+        .filter(m => m.id !== 'welcome' && m.type !== 'correction') 
+        .slice(-10) 
+        .map(m => ({
+          role: m.sender === 'ai' ? 'assistant' : 'user',
+          content: m.text
+        }));
+
+      // 2. Send the history along with the new text
       const response = await fetchWithTimeout(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ 
+          text: text,
+          history: chatHistory 
+        }),
       });
       console.log('Response status:', response.status);
       
