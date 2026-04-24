@@ -23,6 +23,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { addProgress } from '../../utils/progress';
 
 // --- Configuration ---
 const getBackendUrl = () => {
@@ -390,6 +391,9 @@ export default function ChatScreen() {
                          expectedAnswer.includes(userAnswer);
         
         if (isCorrect) {
+          // Give XP for each correct drill answer.
+          void addProgress(10);
+
           const nextIndex = currentDrillIndex + 1;
           if (nextIndex < drills.length) {
             // Move to next drill
@@ -469,6 +473,9 @@ export default function ChatScreen() {
       if (aiReply) {
         const aiMsgs = parseAiReply(aiReply, Date.now().toString());
         setMessages(prev => [...prev, ...aiMsgs]);
+
+        // Give the user 10 XP for practicing.
+        void addProgress(10);
       } else {
         Alert.alert('Error', 'Invalid Response:\n' + JSON.stringify(data));
       }

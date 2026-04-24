@@ -1,11 +1,16 @@
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { getLast7Activity, markTodayActivity } from '@/utils/progress';
+import { supabase } from '@/utils/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
-import { Image, ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { User } from '@supabase/supabase-js';
+import { useRouter } from 'expo-router';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function ProfileScreen() {
+  const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
   const backgroundColor = colorScheme === 'dark' ? '#000' : '#F2F2F7';
@@ -13,81 +18,176 @@ export default function ProfileScreen() {
   const textColor = theme.text;
   const subTextColor = '#8E8E93';
 
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [darkModeEnabled, setDarkModeEnabled] = useState(colorScheme === 'dark');
+  const [user, setUser] = useState<User | null>(null);
+  const [xp, setXp] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [activeDays, setActiveDays] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const chartDays = useMemo(() => {
+    const active = new Set(activeDays);
+    return Array.from({ length: 7 }, (_, idx) => {
+      const date = new Date();
+      const daysAgo = 6 - idx;
+      date.setDate(date.getDate() - daysAgo);
+      const key = date.toLocaleDateString('en-CA');
+
+      return {
+        key,
+        label: date.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 2),
+        isToday: daysAgo === 0,
+        isActive: active.has(key),
+      };
+    });
+  }, [activeDays]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    supabase.auth.getUser().then(({ data }) => {
+      if (mounted) setUser(data.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (mounted) setUser(session?.user ?? null);
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    async function fetchStats() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
+      // Mark that user opened the app today, then load recent activity.
+      await markTodayActivity();
+
+      const { data } = await supabase
+        .from('profiles')
+        .select('xp_points, streak')
+        .eq('id', session.user.id)
+        .single();
+
+      if (data) {
+        setXp(data.xp_points || 0);
+        setStreak(data.streak || 0);
+      }
+
+      const recentDays = await getLast7Activity(session.user.id);
+      setActiveDays(recentDays);
+    }
+
+    fetchStats();
+  }, [user?.id]);
+
+  const displayName = useMemo(() => {
+    if (!user?.email) return 'Guest';
+    return user.email.split('@')[0];
+  }, [user]);
+
+  const username = useMemo(() => {
+    if (!user?.email) return '@guest';
+    return `@${user.email.split('@')[0]}`;
+  }, [user]);
+
+  const signOut = async () => {
+    setLoading(true);
+    const { error } = await supabase.auth.signOut();
+    setLoading(false);
+
+    if (error) {
+      Alert.alert('Sign Out Failed', error.message);
+      return;
+    }
+
+    router.replace('/auth');
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor }]}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
-            <View style={styles.avatarContainer}>
-                <Image 
-                    source={{ uri: 'https://randomuser.me/api/portraits/men/32.jpg' }} 
-                    style={styles.avatar} 
-                />
-                <View style={styles.editIcon}>
-                    <Ionicons name="pencil" size={12} color="#FFF" />
-                </View>
+          <View style={styles.avatarContainer}>
+            <Image
+              source={{ uri: '' }}
+              style={styles.avatar}
+            />
+            <View style={styles.editIcon}>
+              <Ionicons name="pencil" size={12} color="#FFF" />
             </View>
-            <Text style={[styles.name, { color: textColor }]}>Shoaib</Text>
-            <Text style={[styles.username, { color: subTextColor }]}>@shoaib_dev</Text>
+          </View>
+          <Text style={[styles.name, { color: textColor }]}>{displayName}</Text>
+          <Text style={[styles.username, { color: subTextColor }]}>{username}</Text>
         </View>
 
         <View style={styles.statsRow}>
-            <View style={[styles.statCard, { backgroundColor: cardBg }]}>
-                <Text style={[styles.statValue, { color: textColor }]}>12</Text>
-                <Text style={styles.statLabel}>Day Streak</Text>
-            </View>
-            <View style={[styles.statCard, { backgroundColor: cardBg }]}>
-                <Text style={[styles.statValue, { color: textColor }]}>450</Text>
-                <Text style={styles.statLabel}>XP Earned</Text>
-            </View>
-             <View style={[styles.statCard, { backgroundColor: cardBg }]}>
-                <Text style={[styles.statValue, { color: textColor }]}>5</Text>
-                <Text style={styles.statLabel}>Modules</Text>
-            </View>
+          <View style={[styles.statCard, { backgroundColor: cardBg }]}>
+            <Text style={[styles.statValue, { color: textColor }]}>{streak}</Text>
+            <Text style={styles.statLabel}>Day Streak</Text>
+          </View>
+          <View style={[styles.statCard, { backgroundColor: cardBg }]}>
+            <Text style={[styles.statValue, { color: textColor }]}>{xp}</Text>
+            <Text style={styles.statLabel}>XP Earned</Text>
+          </View>
+          <View style={[styles.statCard, { backgroundColor: cardBg }]}>
+            <Text style={[styles.statValue, { color: textColor }]}>5</Text>
+            <Text style={styles.statLabel}>Modules</Text>
+          </View>
+        </View>
+
+        <View style={[styles.activityCard, { backgroundColor: cardBg }]}> 
+          <View style={styles.activityHeader}>
+            <Text style={[styles.activityTitle, { color: textColor }]}>Last 7 Days</Text>
+            <Text style={styles.activityMeta}>{chartDays.filter(d => d.isActive).length}/7 active</Text>
+          </View>
+          <View style={styles.activityChartRow}>
+            {chartDays.map((day) => (
+              <View key={day.key} style={styles.activityDayCol}>
+                <View
+                  style={[
+                    styles.activityBar,
+                    day.isActive ? styles.activityBarActive : styles.activityBarInactive,
+                    day.isToday && styles.activityBarToday,
+                  ]}
+                />
+                <Text style={[styles.activityDayLabel, day.isToday && styles.activityDayLabelToday]}>{day.label}</Text>
+              </View>
+            ))}
+          </View>
         </View>
 
         <Text style={[styles.sectionTitle, { color: textColor }]}>Settings</Text>
-        
-        <View style={[styles.settingsGroup, { backgroundColor: cardBg }]}>
-            <View style={styles.settingItem}>
-                <View style={styles.settingLeft}>
-                    <Ionicons name="notifications-outline" size={22} color={textColor} />
-                    <Text style={[styles.settingLabel, { color: textColor }]}>Notifications</Text>
-                </View>
-                <Switch value={true} trackColor={{ false: '#767577', true: '#34C759' }} />
-            </View>
-             <View style={[styles.settingItem, { borderBottomWidth: 0 }]}>
-                <View style={styles.settingLeft}>
-                    <Ionicons name="moon-outline" size={22} color={textColor} />
-                    <Text style={[styles.settingLabel, { color: textColor }]}>Dark Mode</Text>
-                </View>
-                <Switch value={colorScheme === 'dark'} trackColor={{ false: '#767577', true: '#34C759' }} />
-            </View>
-        </View>
 
         <View style={[styles.settingsGroup, { backgroundColor: cardBg, marginTop: 20 }]}>
-            <TouchableOpacity style={styles.settingItem}>
-                <View style={styles.settingLeft}>
-                    <Ionicons name="language-outline" size={22} color={textColor} />
-                    <Text style={[styles.settingLabel, { color: textColor }]}>Target Language</Text>
-                </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Text style={{ color: subTextColor, marginRight: 8 }}>Arabic</Text>
-                    <Ionicons name="chevron-forward" size={20} color={subTextColor} />
-                </View>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.settingItem, { borderBottomWidth: 0 }]}>
-                 <View style={styles.settingLeft}>
-                    <Ionicons name="help-circle-outline" size={22} color={textColor} />
-                    <Text style={[styles.settingLabel, { color: textColor }]}>Help & Support</Text>
-                </View>
-                 <Ionicons name="chevron-forward" size={20} color={subTextColor} />
-            </TouchableOpacity>
+          <TouchableOpacity style={styles.settingItem}>
+            <View style={styles.settingLeft}>
+              <Ionicons name="language-outline" size={22} color={textColor} />
+              <Text style={[styles.settingLabel, { color: textColor }]}>Target Language</Text>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={{ color: subTextColor, marginRight: 8 }}>Arabic</Text>
+              <Ionicons name="chevron-forward" size={20} color={subTextColor} />
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.settingItem, { borderBottomWidth: 0 }]}>
+            <View style={styles.settingLeft}>
+              <Ionicons name="help-circle-outline" size={22} color={textColor} />
+              <Text style={[styles.settingLabel, { color: textColor }]}>Help & Support</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={subTextColor} />
+          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.logoutButton}>
-            <Text style={styles.logoutText}>Log Out</Text>
+        <TouchableOpacity style={styles.logoutButton} onPress={signOut} disabled={loading}>
+          <Text style={styles.logoutText}>{loading ? 'Logging out...' : 'Log Out'}</Text>
         </TouchableOpacity>
-
       </ScrollView>
     </SafeAreaView>
   );
@@ -165,6 +265,60 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 12,
     marginLeft: 4,
+  },
+  activityCard: {
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 20,
+  },
+  activityHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  activityTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  activityMeta: {
+    fontSize: 12,
+    color: '#8E8E93',
+    fontWeight: '600',
+  },
+  activityChartRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+  },
+  activityDayCol: {
+    alignItems: 'center',
+    width: 30,
+  },
+  activityBar: {
+    width: 18,
+    height: 30,
+    borderRadius: 9,
+    marginBottom: 6,
+  },
+  activityBarActive: {
+    backgroundColor: '#34C759',
+  },
+  activityBarInactive: {
+    backgroundColor: '#D1D1D6',
+    opacity: 0.5,
+  },
+  activityBarToday: {
+    borderWidth: 2,
+    borderColor: '#007AFF',
+  },
+  activityDayLabel: {
+    fontSize: 11,
+    color: '#8E8E93',
+    fontWeight: '600',
+  },
+  activityDayLabelToday: {
+    color: '#007AFF',
   },
   settingsGroup: {
     borderRadius: 16,
