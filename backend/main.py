@@ -15,13 +15,12 @@ from typing import Optional, List
 from supabase import create_client, Client
 import redis
 
-# Load .env from the same directory as main.py
 env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(dotenv_path=env_path)
 
 app = FastAPI()
 
-# Allow CORS for development
+# Allow the Expo app to call the backend during development.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -41,14 +40,13 @@ class ChatRequest(BaseModel):
 class TTSRequest(BaseModel):
     text: str
     voice: str = "ar-SA-HamedNeural"
-    rate: str = "-10%"  # Default to slightly slower for better clarity
+    rate: str = "-10%"
     pitch: str = "+0Hz"
 
-# Groq Configuration
+# External service configuration.
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
-# Debugging: Print status of API Key
 if GROQ_API_KEY:
     print("Groq API Key loaded successfully.")
     client = Groq(api_key=GROQ_API_KEY)
@@ -56,7 +54,6 @@ else:
     print(f"Groq API Key NOT found in {env_path}")
     client = None
 
-# Supabase Configuration
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client | None = None
@@ -64,14 +61,13 @@ if SUPABASE_URL and SUPABASE_KEY:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     print("Supabase Connected.")
 
-# Redis Configuration
 REDIS_URL = os.getenv("REDIS_URL")
 redis_client = None
 if REDIS_URL:
-    # decode_responses=True ensures we get strings back instead of raw bytes
     redis_client = redis.from_url(REDIS_URL, decode_responses=True)
     print("Redis Connected.")
 
+# Prompt tuned for Arabic tutoring, corrections, and concise replies.
 SYSTEM_PROMPT = """You are a helpful and friendly Arabic language tutor. The user may write in Arabic, English, or a mix of both. You must ONLY use English and Arabic in your responses. NEVER use any other languages.
 NEVER repeat the same sentence, phrase, or word breakdown multiple times in a row. Do not get stuck in repetitive loops.
 If the user asks about an Arabic slang word (like Egyptian slang), explain its meaning in English clearly without necessarily trying to correct it to formal Arabic.
@@ -83,43 +79,33 @@ If the user's Arabic is perfectly correct, DO NOT output a correction line at al
 Make sure there is a blank line after the correction (if you made one). Then, reply normally in Arabic to continue the conversation. Keep your conversational answers concise. 
 Finally, add an English translation of ONLY your conversational reply on a new line in parentheses, exactly like: "(English: [translation of the Arabic reply])"."""
 
+# Transcribe uploaded speech into text for the chat screen.
 @app.post("/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
-    """
-    Receives an audio file and transcribes it using Groq Whisper.
-    Leaves the AI reply generation to the /chat endpoint!
-    """
     temp_filename = f"temp_{file.filename}"
     
     try:
-        # 1. Save the uploaded file temporarily
         with open(temp_filename, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
             
         print(f"Received file: {temp_filename}")
 
-        # 2. Call Groq Whisper API if key exists
         if client:
             try:
-                # Transcribe Audio with a bias prompt!
                 audio_file = open(temp_filename, "rb")
                 transcript = client.audio.transcriptions.create(
                     model="whisper-large-v3", 
                     file=audio_file,
-                    #prompt to force Whisper to expect English and Arabic, preventing random languages
                     prompt="The user is speaking either English or Arabic (العربية). Please transcribe exactly what they are saying."
                 )
                 print(f"Transcription: {transcript.text}")
 
-                # Return ONLY the transcribed text so the frontend can send it to /chat
                 return {"text": transcript.text}
 
             except Exception as e:
                 print(f"Groq Error: {e}")
-                # Return the actual error to the frontend for debugging
                 return {"text": f"Error from Groq: {str(e)}"}
         else:
-             # MOCK RESPONSE for demonstration/testing without key
             mock_text = "أريد قهوة من فضلك (Mock: Add Groq Key)"
             return {"text": mock_text}
 
@@ -127,11 +113,11 @@ async def transcribe_audio(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
         
     finally:
-        # 3. Cleanup: Delete the temp file
         if os.path.exists(temp_filename):
             audio_file.close() if 'audio_file' in locals() and not audio_file.closed else None
             os.remove(temp_filename)
 
+# Generate the next AI tutoring response.
 @app.post("/chat")
 async def chat_with_ai(request: ChatRequest):
     if not GROQ_API_KEY:
@@ -139,7 +125,6 @@ async def chat_with_ai(request: ChatRequest):
 
     print(f"Calling Groq API for session: {request.session_id}...")
     
-    # 1. Fetch the last 10 messages from Redis using the session_id
     history_key = f"chat_history:{request.session_id}"
     chat_history = []
     
@@ -148,7 +133,6 @@ async def chat_with_ai(request: ChatRequest):
         if stored_history:
             chat_history = json.loads(stored_history)
             
-    # 2. Start with the System Prompt
     api_messages = [
         {
             "role": "system",
@@ -156,17 +140,14 @@ async def chat_with_ai(request: ChatRequest):
         }
     ]
     
-    # 3. Append the Redis conversation history
     for msg in chat_history:
         api_messages.append(msg)
         
-    # 4. Append the newest user message
     api_messages.append({
         "role": "user",
         "content": request.text
     })
 
-    # 5. Get the AI Response
     chat_completion = client.chat.completions.create(
         messages=api_messages,
         model="llama-3.3-70b-versatile",
@@ -175,35 +156,27 @@ async def chat_with_ai(request: ChatRequest):
     
     ai_response = chat_completion.choices[0].message.content
     
-    # 6. Save the updated history back to Redis
     if redis_client:
         chat_history.append({"role": "user", "content": request.text})
         chat_history.append({"role": "assistant", "content": ai_response})
         
-        # Keep ONLY the last 10 messages to save space and context limits
         chat_history = chat_history[-10:]
         
-        # Save to Redis with a 24-hour expiration (86400 seconds)
         redis_client.setex(history_key, 86400, json.dumps(chat_history))
 
     return {"response": ai_response, "reply": ai_response}
 
+# Health check.
 @app.get("/")
 def read_root():
     return {"message": "Lugha AI Backend is running"}
 
-# Available Arabic voices:
-# ar-SA-HamedNeural (Saudi male) - clear, natural
-# ar-SA-ZariyahNeural (Saudi female)
-# ar-EG-ShakirNeural (Egyptian male)
-# ar-EG-SalmaNeural (Egyptian female)
-
+# Convert text to spoken audio for the app.
 @app.post("/tts")
 async def text_to_speech(request: TTSRequest):
     """Convert Arabic text to speech using Microsoft Edge TTS."""
     temp_file = f"tts_{uuid.uuid4().hex}.mp3"
     try:
-        # Pass the rate and pitch to the TTS engine!
         communicate = edge_tts.Communicate(
             request.text, 
             request.voice, 
@@ -231,6 +204,7 @@ async def text_to_speech(request: TTSRequest):
                 os.remove(temp_file)
         threading.Thread(target=cleanup, daemon=True).start()
 
+# GET version for native audio players.
 @app.get("/tts")
 async def text_to_speech_get(
     text: str, 
@@ -241,7 +215,6 @@ async def text_to_speech_get(
     """GET version for native audio players that can't POST."""
     temp_file = f"tts_{uuid.uuid4().hex}.mp3"
     try:
-        # Pass the rate and pitch to the TTS engine!
         communicate = edge_tts.Communicate(
             text, 
             voice, 

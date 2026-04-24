@@ -26,6 +26,7 @@ export default function ProfileScreen() {
   const [activeDays, setActiveDays] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Build the last 7 days chart from stored activity dates.
   const chartDays = useMemo(() => {
     const active = new Set(activeDays);
     return Array.from({ length: 7 }, (_, idx) => {
@@ -65,7 +66,6 @@ export default function ProfileScreen() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
 
-      // Mark that user opened the app today, then load recent activity.
       await markTodayActivity();
 
       const { data } = await supabase

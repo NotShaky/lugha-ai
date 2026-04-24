@@ -2,20 +2,14 @@
 
 Lugha AI is an Arabic language learning app powered by AI. It combines chat practice, voice input, pronunciation playback, and guided learning content in one Expo app.
 
-## What’s New
-
-- AI chat now supports both typed and spoken input.
-- The backend includes speech-to-text, text-to-speech, and conversation history.
-- The Learn tab includes Arabic letters, grammar basics, vocabulary sets, sentence patterns, and drills.
-- The chat UI can show Arabic corrections and English translations side by side.
-
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) (v18+)
 - [Python](https://www.python.org/) (v3.12.10)
 - [Expo Go](https://expo.dev/go) on a physical device if you want to test on mobile
 - A [Groq API key](https://console.groq.com/)
-- Optional: Redis and Supabase credentials if you want persistence and remote storage configured
+- A Supabase project for auth and profile stats
+- Optional: Redis if you want conversation history persistence configured
 
 ## Setup
 
@@ -43,7 +37,9 @@ SUPABASE_KEY=your_supabase_key_here
 REDIS_URL=your_redis_url_here
 ```
 
-Only `GROQ_API_KEY` is required for the core chat flow. `SUPABASE_URL`, `SUPABASE_KEY`, and `REDIS_URL` are optional.
+Only `GROQ_API_KEY` is required for the core chat flow. `SUPABASE_URL`, `SUPABASE_KEY`, and `REDIS_URL` are optional for backend features.
+
+Set the Supabase client values in `utils/supabase.ts` for the frontend.
 
 ### 4. Start the backend server
 
@@ -53,8 +49,6 @@ The backend needs to be running before you use chat, voice transcription, or TTS
 cd backend
 ..\.venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 ```
-
-If you prefer to use a virtual environment, activate it first and then run the same command.
 
 ### 5. Start the Expo app
 
@@ -66,18 +60,22 @@ npx expo start
 
 Scan the QR code with Expo Go on your phone.
 
-> **Note:** Your phone and computer must be on the same Wi-Fi network. The app auto-detects the backend host in Expo Go. If needed, override it by creating a root `.env` file with:
-> ```env
-> EXPO_PUBLIC_BACKEND_URL=http://YOUR_LOCAL_IP:8001
-> ```
+Your phone and computer must be on the same Wi-Fi network. If needed, override the backend host by creating a root `.env` file with:
+
+```env
+EXPO_PUBLIC_BACKEND_URL=http://YOUR_LOCAL_IP:8001
+```
 
 ## Main Features
 
+- Email/password auth with a combined Sign In / Create Account flow
 - AI conversation practice through the Home and Chat screens
 - Voice recording with transcription through the `/transcribe` endpoint
 - Arabic and English pronunciation playback through the `/tts` endpoint
 - Structured learning content in the Learn tab
 - Corrective Arabic replies with English translation output
+- XP and streak tracking saved to Supabase profiles
+- A 7-day activity chart on the Profile tab
 
 ## Backend Endpoints
 
@@ -86,6 +84,13 @@ Scan the QR code with Expo Go on your phone.
 - `POST /transcribe` - convert recorded audio to text
 - `GET /tts` and `POST /tts` - generate spoken Arabic or English audio
 
+## Progress Tracking
+
+- Chat practice awards XP when the AI responds successfully.
+- Drill mode also awards XP when the user answers correctly.
+- The Profile tab shows total XP, streak, and the last 7 active days.
+- Activity days are recorded when progress is awarded and when the Profile tab is opened.
+
 ## Project Structure
 
 - `app/` - Expo Router screens
@@ -93,6 +98,8 @@ Scan the QR code with Expo Go on your phone.
 - `app/(tabs)/learn.tsx` - Learn tab with lessons and drills
 - `app/(tabs)/profile.tsx` - Profile tab
 - `app/chat/[id].tsx` - Chat conversation screen
+- `utils/progress.ts` - XP, streak, and activity tracking helper
+- `utils/supabase.ts` - Supabase client configuration
 - `backend/main.py` - FastAPI backend with Groq, transcription, and TTS
 - `components/` - Reusable React Native components
 - `constants/` - Theme colors and configuration

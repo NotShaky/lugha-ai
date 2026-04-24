@@ -25,7 +25,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { addProgress } from '../../utils/progress';
 
-// --- Configuration ---
+// --- Backend Configuration ---
 const getBackendUrl = () => {
   if (Platform.OS === 'web') return 'http://localhost:8001';
 
@@ -38,14 +38,12 @@ const getBackendUrl = () => {
     const host = hostUri?.split(':')[0];
 
     if (host) {
-      // Android emulator maps localhost to 10.0.2.2
       if (Platform.OS === 'android' && host === 'localhost') {
         return 'http://10.0.2.2:8001';
       }
       return `http://${host}:8001`;
     }
   } catch {
-    // Fallback handled below.
   }
 
   return 'http://localhost:8001';
@@ -53,9 +51,8 @@ const getBackendUrl = () => {
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL ?? getBackendUrl();
 
-const FETCH_TIMEOUT_MS = 15000; // 15 second timeout
+const FETCH_TIMEOUT_MS = 15000;
 
-// Fetch with timeout to prevent infinite loading
 const fetchWithTimeout = (url: string, options: RequestInit, timeoutMs = FETCH_TIMEOUT_MS): Promise<Response> => {
   return new Promise((resolve, reject) => {
     const controller = new AbortController();
@@ -79,7 +76,7 @@ interface Message {
   timestamp: Date;
 }
 
-// --- Drills Data ---
+// --- Drill Data ---
 const drills = [
   {
     prompt: 'Build: "This is a pen"',
@@ -95,12 +92,10 @@ const drills = [
   },
 ];
 
-// Parse AI reply into separate correction + reply messages
 function parseAiReply(reply: string, baseId: string): Message[] {
   const msgs: Message[] = [];
   const now = new Date();
 
-  // Extract correction (starts with ✏️)
   const correctionMatch = reply.match(/(?:✏️\s*Correction:?[\s\S]*?)(?=\n\n|$)/m);
   let remaining = reply;
 
@@ -133,7 +128,6 @@ export default function ChatScreen() {
   const { title, id } = useLocalSearchParams();
   const isDrillMode = id === 'drills';
   
-  // --- State ---
   const [currentDrillIndex, setCurrentDrillIndex] = useState(0);
   const [messages, setMessages] = useState<Message[]>(() => {
     if (isDrillMode) {
@@ -163,30 +157,28 @@ export default function ChatScreen() {
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
 
-  //--- Refs ---
+  // --- Refs ---
   const speakingIdRef = useRef<string | null>(null); 
   const currentPlayerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
   const currentWebPlayerRef = useRef<HTMLAudioElement | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
+  // --- Audio Helpers ---
   const stopPlayingAudio = () => {
-    // Stop native audio
     if (currentPlayerRef.current) {
       currentPlayerRef.current.remove();
       currentPlayerRef.current = null;
     }
-    // Stop web audio
     if (currentWebPlayerRef.current) {
       currentWebPlayerRef.current.pause();
       currentWebPlayerRef.current.currentTime = 0;
       currentWebPlayerRef.current = null;
     }
     setSpeakingId(null);
-    speakingIdRef.current = null; // Clear the sequence ref
+    speakingIdRef.current = null;
   };
 
-  // expo-audio recorder (native only)
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY, (status) => {
     console.log('Recorder status:', JSON.stringify(status));
     if (status.isFinished) {
@@ -199,12 +191,10 @@ export default function ChatScreen() {
 
   // --- Effects ---
   useEffect(() => {
-    // Scroll to bottom when messages change
     setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
     }, 100);
 
-    // Auto-speak last AI reply message
     if (autoSpeak && messages.length > 0) {
       const lastMsg = messages[messages.length - 1];
       if (lastMsg.sender === 'ai' && lastMsg.type !== 'correction') {
@@ -213,32 +203,26 @@ export default function ChatScreen() {
     }
   }, [messages]);
 
-  // --- Functions ---
-
-  // Extract text for TTS (strips translation block at bottom of main chat)
+  // --- Text Helpers ---
   const getArabicText = (text: string): string => {
     return text
-      .replace(/\(English:[\s\S]*?\)\s*$/, '') // Strips the English translation at the bottom
-      .replace(/\{[\s\S]*?\}/g, '')            // NEW: Strips transliterations inside {curly braces}
+      .replace(/\(English:[\s\S]*?\)\s*$/, '')
+      .replace(/\{[\s\S]*?\}/g, '')
       .trim();
   };
 
-  // Helper to split text into English and Arabic chunks
+  // --- TTS Helpers ---
   const segmentTextByLanguage = (text: string) => {
-    // Splits by sequences of English letters (including punctuation/spaces between them)
     const parts = text.split(/([a-zA-Z0-9]+(?:[\s.,!?'"-]+[a-zA-Z0-9]+)*)/g);
     const segments: { text: string; voice: string }[] = [];
 
     parts.forEach(p => {
       const trimmed = p.trim();
-      // Skip if empty or contains ONLY punctuation/symbols (Fixes the 500 Error!)
       if (!trimmed || /^[^a-zA-Z0-9\u0600-\u06FF]+$/.test(trimmed)) return;
       
       if (/[a-zA-Z]/.test(trimmed)) {
-        // Use a clear English accent
         segments.push({ text: trimmed, voice: 'en-GB-RyanNeural' }); 
       } else {
-        // Default Arabic voice
         segments.push({ text: trimmed, voice: 'ar-SA-HamedNeural' });
       }
     });
@@ -249,13 +233,11 @@ export default function ChatScreen() {
     const textToSpeak = getArabicText(text);
     if (!textToSpeak) return;
 
-    // If already speaking this exact message, stop it.
     if (speakingId === messageId) {
       stopPlayingAudio();
       return;
     }
 
-    // Stop anything else currently playing
     stopPlayingAudio();
 
     try {
@@ -267,12 +249,9 @@ export default function ChatScreen() {
     setSpeakingId(messageId);
     speakingIdRef.current = messageId;
 
-    // Split the text into Arabic and English chunks
     const segments = segmentTextByLanguage(textToSpeak);
 
-    // Play each chunk sequentially
     for (const segment of segments) {
-      // If the user cancelled or clicked another message mid-sentence, break the loop
       if (speakingIdRef.current !== messageId) break;
 
       try {
@@ -305,7 +284,6 @@ export default function ChatScreen() {
             audio.play();
           });
         } else {
-          // Native (iOS/Android)
           const ttsUrl = `${BACKEND_URL}/tts?text=${encodeURIComponent(segment.text)}&voice=${encodeURIComponent(segment.voice)}`;
           
           await new Promise<void>((resolve) => {
@@ -319,22 +297,18 @@ export default function ChatScreen() {
             let checkCount = 0;
 
             const checkInterval = setInterval(() => {
-              // 1. If forcefully stopped by user
               if (currentPlayerRef.current !== player || speakingIdRef.current !== messageId) {
                 clearInterval(checkInterval);
                 return resolve();
               }
 
-              // 2. Track when it actually starts playing (to avoid skipping during buffering)
               if (player.playing) {
                 hasStartedPlaying = true;
               }
 
               checkCount++;
-              // Fallback: If it's stuck buffering for over 10 seconds, skip to the next one
               const networkTimeout = !hasStartedPlaying && checkCount > 40;
 
-              // 3. Move on only if it played and naturally finished, OR if the network timed out
               if ((hasStartedPlaying && !player.playing) || networkTimeout) {
                 clearInterval(checkInterval);
                 if (currentPlayerRef.current === player) {
@@ -348,55 +322,50 @@ export default function ChatScreen() {
         }
       } catch (error) {
         console.error('Segment TTS error:', error);
-        break; // Skip remaining chunks if one fails
+        break;
       }
     }
 
-    // Clean up UI state if the whole sequence finished naturally
     if (speakingIdRef.current === messageId) {
       setSpeakingId(null);
       speakingIdRef.current = null;
     }
   };
 
+  // --- Message Handling ---
   const sendMessage = async (text: string) => {
     if (!text.trim()) return;
     
-    // Optimistic Update
     const userMsg: Message = { id: Date.now().toString(), text, sender: 'user', timestamp: new Date() };
     setMessages(prev => [...prev, userMsg]);
     setInputText('');
+  // --- Recording ---
     setIsProcessing(true);
 
     try {
-      // --- Drill Mode Handler ---
       if (isDrillMode) {
         const currentDrill = drills[currentDrillIndex];
         
-        // Remove Arabic diacritical marks (harakat) so حذا قلم matches حٰذَا قَلَمٌ
         const removeHarakat = (str: string): string => {
           return str
-            .replace(/[\u064B-\u0652\u0670]/g, '') // Remove all harakat
+            .replace(/[\u064B-\u0652\u0670]/g, '')
             .toLowerCase()
             .trim()
-            .replace(/\s+/g, ' '); // Normalize whitespace
+            .replace(/\s+/g, ' ');
         };
         
         const userAnswer = removeHarakat(text);
         const expectedAnswer = removeHarakat(currentDrill.answer);
         
-        // Check if answers match exactly or if one contains the other
         const isCorrect = userAnswer === expectedAnswer || 
                          userAnswer.includes(expectedAnswer) || 
                          expectedAnswer.includes(userAnswer);
         
         if (isCorrect) {
-          // Give XP for each correct drill answer.
           void addProgress(10);
 
           const nextIndex = currentDrillIndex + 1;
           if (nextIndex < drills.length) {
-            // Move to next drill
             setCurrentDrillIndex(nextIndex);
             const feedback = `✓ Correct! Well done!\n\nNext drill:`+ `\n\n${drills[nextIndex].prompt}`;
             const aiMsg: Message = { 
@@ -407,7 +376,6 @@ export default function ChatScreen() {
             };
             setMessages(prev => [...prev, aiMsg]);
           } else {
-            // All drills completed
             const feedback = `✓ Correct! Excellent work!\n\n🎉 You've completed all practice drills!\n\nGreat job practicing Arabic!`;
             const aiMsg: Message = { 
               id: Date.now().toString() + '_ai', 
@@ -431,10 +399,8 @@ export default function ChatScreen() {
         return;
       }
 
-      // --- Regular Chat Mode ---
       console.log(`Sending to: ${BACKEND_URL}/chat`);
       
-      // 1. Format the history for the API (only take the last 10 to save tokens)
       const chatHistory = messages
         .filter(m => m.id !== 'welcome' && m.type !== 'correction') 
         .slice(-10) 
@@ -443,14 +409,12 @@ export default function ChatScreen() {
           content: m.text
         }));
 
-      // 2. Send the history along with the new text
-      // Call standard text chat endpoint
       const response = await fetchWithTimeout(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text,
-          session_id: id, // 👈 Send the chat route ID as the session ID!
+          session_id: id,
         }),
       }, 15000);
       
@@ -463,7 +427,6 @@ export default function ChatScreen() {
       const data = await response.json();
       console.log('Response data:', data);
 
-      // Backend may return either `reply` or `response` depending on version.
       const aiReply = typeof data?.reply === 'string'
         ? data.reply
         : typeof data?.response === 'string'
@@ -474,7 +437,6 @@ export default function ChatScreen() {
         const aiMsgs = parseAiReply(aiReply, Date.now().toString());
         setMessages(prev => [...prev, ...aiMsgs]);
 
-        // Give the user 10 XP for practicing.
         void addProgress(10);
       } else {
         Alert.alert('Error', 'Invalid Response:\n' + JSON.stringify(data));
@@ -488,7 +450,6 @@ export default function ChatScreen() {
   };
 
   const startRecording = async () => {
-    // Cut off any playing audio when the user starts recording
     stopPlayingAudio();
 
     if (Platform.OS === 'web') {
@@ -499,7 +460,6 @@ export default function ChatScreen() {
 
         mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
         mediaRecorder.onstop = async () => {
-          // Stop all tracks so the browser mic indicator goes away
           stream.getTracks().forEach(track => track.stop());
 
           setIsProcessing(true);
@@ -556,7 +516,7 @@ export default function ChatScreen() {
   const stopRecording = async () => {
     if (Platform.OS === 'web') {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop(); // triggers onstop handler above
+        mediaRecorderRef.current.stop();
         mediaRecorderRef.current = null;
       }
       setIsRecording(false);
@@ -584,14 +544,13 @@ export default function ChatScreen() {
       }
 
       const formData = new FormData();
-      // @ts-ignore
-      formData.append('file', { uri, name: 'audio.m4a', type: 'audio/m4a' });
+      formData.append('file', { uri, name: 'audio.m4a', type: 'audio/m4a' } as any);
 
       console.log('Uploading audio to:', `${BACKEND_URL}/transcribe`);
       const response = await fetchWithTimeout(`${BACKEND_URL}/transcribe`, {
         method: 'POST',
         body: formData,
-      }, 30000); // 30s for audio upload
+      }, 30000);
       
       const data = await response.json();
       
@@ -653,7 +612,6 @@ export default function ChatScreen() {
           const isAi = item.sender === 'ai';
           const isCorrection = item.type === 'correction';
 
-          // For AI reply messages, split Arabic and English
           let arabicPart: string = item.text;
           let englishPart: string | null = null;
 
@@ -665,7 +623,6 @@ export default function ChatScreen() {
             }
           }
 
-          // Correction bubble — collapsed by default
           if (isCorrection) {
             const isExpanded = expandedCorrections.has(item.id);
             const toggleCorrection = () => {
@@ -710,7 +667,6 @@ export default function ChatScreen() {
             );
           }
 
-          // Regular user or AI reply bubble
           return (
             <View style={[
               styles.bubble, 

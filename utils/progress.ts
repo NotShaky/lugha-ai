@@ -1,15 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from './supabase';
 
+// Local activity storage used for the profile chart.
 const ACTIVITY_STORAGE_PREFIX = 'activity_days:';
 
 const getTodayKey = () => new Date().toLocaleDateString('en-CA');
 
+// Keep the activity list unique and compact.
 const normalizeActivityDays = (days: string[]) => {
-  // Keep unique values and cap history so local storage stays small.
   return Array.from(new Set(days)).sort().slice(-60);
 };
 
+// Record the current day as active for the signed-in user.
 export async function markTodayActivity() {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return;
@@ -23,6 +25,7 @@ export async function markTodayActivity() {
   await AsyncStorage.setItem(storageKey, JSON.stringify(next));
 }
 
+// Read the last seven active days for the profile chart.
 export async function getLast7Activity(userId: string) {
   const storageKey = `${ACTIVITY_STORAGE_PREFIX}${userId}`;
   const stored = await AsyncStorage.getItem(storageKey);
@@ -30,16 +33,15 @@ export async function getLast7Activity(userId: string) {
   return normalizeActivityDays(parsed).slice(-7);
 }
 
+// Update XP, streak, and last active date after practice.
 export async function addProgress(xpToAdd: number) {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return;
 
   const userId = session.user.id;
 
-  // Get today's date in YYYY-MM-DD format based on local time
   const today = new Date().toLocaleDateString('en-CA');
 
-  // 1. Get the user's current stats
   const { data: profile } = await supabase
     .from('profiles')
     .select('xp_points, streak, last_active')
@@ -51,20 +53,18 @@ export async function addProgress(xpToAdd: number) {
   let newXp = (profile.xp_points || 0) + xpToAdd;
   let newStreak = profile.streak || 0;
 
-  // 2. Calculate the streak logic
   if (profile.last_active !== today) {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yesterdayStr = yesterday.toLocaleDateString('en-CA');
 
     if (profile.last_active === yesterdayStr) {
-      newStreak += 1; // They practiced yesterday, keep the streak alive!
+      newStreak += 1;
     } else {
-      newStreak = 1; // They missed a day, reset streak to 1
+      newStreak = 1;
     }
   }
 
-  // 3. Save the updated stats back to Supabase
   await supabase
     .from('profiles')
     .update({
@@ -74,6 +74,5 @@ export async function addProgress(xpToAdd: number) {
     })
     .eq('id', userId);
 
-  // Also record local per-day activity so profile can render a 7-day chart.
   await markTodayActivity();
 }

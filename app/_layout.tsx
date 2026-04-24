@@ -9,7 +9,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/utils/supabase';
 import { Session } from '@supabase/supabase-js';
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
+// Keep the splash screen visible until fonts and auth state are ready.
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
@@ -18,14 +18,14 @@ export default function RootLayout() {
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
   
-  // --- New Auth State ---
+  // --- Auth State ---
   const [session, setSession] = useState<Session | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   
   const segments = useSegments();
   const router = useRouter();
 
-  // 1. Fetch the initial session and listen for auth changes
+  // Load the initial session and subscribe to auth updates.
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -39,20 +39,16 @@ export default function RootLayout() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. Control the Routing
+  // Redirect users based on auth state once the app is ready.
   useEffect(() => {
-    // Only redirect once fonts and auth are fully loaded
     if (loaded && isAuthReady) {
       SplashScreen.hideAsync();
-      
-      // Check if the user is currently on the auth screen
+
       const inAuthGroup = segments[0] === 'auth';
-      
-      // If user is NOT logged in and NOT on the auth screen, kick them to auth
+
       if (!session && !inAuthGroup) {
         router.replace('/auth');
       } 
-      // If user IS logged in and trying to view the auth screen, send them to tabs
       else if (session && inAuthGroup) {
         router.replace('/(tabs)');
       }

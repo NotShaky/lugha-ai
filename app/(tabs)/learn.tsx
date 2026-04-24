@@ -8,7 +8,6 @@ import React, { useRef, useState } from 'react';
 import { Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// --- Configuration ---
 const getBackendUrl = () => {
   if (Platform.OS === 'web') return 'http://localhost:8001';
   try {
@@ -182,7 +181,6 @@ const drills = [
   },
 ];
 
-// --- Fix: Spelled-out Arabic names so TTS doesn't just read the short sounds ---
 const letterNamesArabic: Record<string, string> = {
   'ا': 'أَلِف', 'ب': 'بَاء', 'ت': 'تَاء', 'ث': 'ثَا', 'ج': 'جِييم',
   'ح': 'حَ', 'خ': 'خَاي', 'د': 'دَال', 'ذ': 'ذَال', 'ر': 'رَاا',
@@ -203,7 +201,6 @@ export default function LearnScreen() {
   const mutedTextColor = colorScheme === 'dark' ? '#B8B8BE' : '#555';
   const subTextColor = '#8E8E93';
 
-  // --- Audio State & Refs ---
   const [playingId, setPlayingId] = useState<string | null>(null);
   const currentPlayerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
   const currentWebPlayerRef = useRef<HTMLAudioElement | null>(null);
@@ -241,7 +238,6 @@ export default function LearnScreen() {
         const response = await fetch(`${BACKEND_URL}/tts`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          // Send the requested rate to the backend
           body: JSON.stringify({ text, voice: 'ar-SA-HamedNeural', rate }), 
         });
         const blob = await response.blob();
@@ -251,7 +247,6 @@ export default function LearnScreen() {
         audio.onended = () => { setPlayingId(null); URL.revokeObjectURL(url); };
         audio.play();
       } else {
-        // Send the requested rate in the GET URL
         const ttsUrl = `${BACKEND_URL}/tts?text=${encodeURIComponent(text)}&voice=ar-SA-HamedNeural&rate=${encodeURIComponent(rate)}`;
         const player = createAudioPlayer({ uri: ttsUrl });
         currentPlayerRef.current = player;
@@ -261,7 +256,6 @@ export default function LearnScreen() {
         let checkCount = 0;
 
         const checkInterval = setInterval(() => {
-          // Force quit if another audio started
           if (currentPlayerRef.current !== player || playingId !== id) {
             clearInterval(checkInterval);
             return;
@@ -274,7 +268,6 @@ export default function LearnScreen() {
           checkCount++;
           const networkTimeout = !hasStartedPlaying && checkCount > 40;
 
-          // Only remove if it naturally stopped playing AFTER starting
           if ((hasStartedPlaying && !player.playing) || networkTimeout) {
             clearInterval(checkInterval);
             if (currentPlayerRef.current === player) {
@@ -348,7 +341,6 @@ export default function LearnScreen() {
                 style={styles.playIconBtn}
                 onPress={(e) => { 
                   e.stopPropagation(); 
-                  // Look up the full word "صَاد", fallback to the letter if missing
                   const textToSpeak = letterNamesArabic[item.letter] || item.letter;
                   playAudio(textToSpeak, `letter-${idx}`, '-20%'); 
                 }}
