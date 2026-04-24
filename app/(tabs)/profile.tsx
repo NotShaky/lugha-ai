@@ -9,6 +9,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+const PACK_LABELS: Record<string, string> = {
+  general: 'General Chat Drills',
+  airport: 'At the Airport',
+  classroom: 'In the Classroom',
+};
+
 export default function ProfileScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
@@ -24,6 +30,7 @@ export default function ProfileScreen() {
   const [xp, setXp] = useState(0);
   const [streak, setStreak] = useState(0);
   const [activeDays, setActiveDays] = useState<string[]>([]);
+  const [completedPacks, setCompletedPacks] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Build the last 7 days chart from stored activity dates.
@@ -68,15 +75,29 @@ export default function ProfileScreen() {
 
       await markTodayActivity();
 
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
-        .select('xp_points, streak')
+        .select('xp_points, streak, completed_packs')
         .eq('id', session.user.id)
         .single();
 
       if (data) {
         setXp(data.xp_points || 0);
         setStreak(data.streak || 0);
+        setCompletedPacks(Array.isArray(data.completed_packs) ? data.completed_packs.map((item: unknown) => String(item)) : []);
+      } else if (error) {
+        // Fallback for profiles tables that do not yet include completed_packs.
+        const { data: fallback } = await supabase
+          .from('profiles')
+          .select('xp_points, streak')
+          .eq('id', session.user.id)
+          .single();
+
+        if (fallback) {
+          setXp(fallback.xp_points || 0);
+          setStreak(fallback.streak || 0);
+        }
+        setCompletedPacks([]);
       }
 
       const recentDays = await getLast7Activity(session.user.id);
@@ -136,9 +157,29 @@ export default function ProfileScreen() {
             <Text style={styles.statLabel}>XP Earned</Text>
           </View>
           <View style={[styles.statCard, { backgroundColor: cardBg }]}>
-            <Text style={[styles.statValue, { color: textColor }]}>5</Text>
-            <Text style={styles.statLabel}>Modules</Text>
+            <Text style={[styles.statValue, { color: textColor }]}>{completedPacks.length}</Text>
+            <Text style={styles.statLabel}>Packs Done</Text>
           </View>
+        </View>
+
+        <View style={[styles.activityCard, { backgroundColor: cardBg }]}>
+          <View style={styles.activityHeader}>
+            <Text style={[styles.activityTitle, { color: textColor }]}>Completed Packs</Text>
+            <Text style={styles.activityMeta}>{completedPacks.length} total</Text>
+          </View>
+
+          {completedPacks.length === 0 ? (
+            <Text style={styles.emptyPacksText}>No completed packs yet. Start a scenario drill from Home.</Text>
+          ) : (
+            <View style={styles.completedPacksList}>
+              {completedPacks.map((packId) => (
+                <View key={packId} style={styles.completedPackChip}>
+                  <Ionicons name="checkmark-circle" size={14} color="#34C759" />
+                  <Text style={styles.completedPackText}>{PACK_LABELS[packId] ?? packId}</Text>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
 
         <View style={[styles.activityCard, { backgroundColor: cardBg }]}> 
@@ -319,6 +360,30 @@ const styles = StyleSheet.create({
   },
   activityDayLabelToday: {
     color: '#007AFF',
+  },
+  completedPacksList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  completedPackChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#EEF9F1',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  completedPackText: {
+    color: '#1E7A35',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  emptyPacksText: {
+    fontSize: 13,
+    color: '#8E8E93',
+    lineHeight: 18,
   },
   settingsGroup: {
     borderRadius: 16,

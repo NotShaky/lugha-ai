@@ -23,7 +23,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { addProgress } from '../../utils/progress';
+import { addProgress, markPackCompleted } from '../../utils/progress';
 import { supabase } from '../../utils/supabase';
 
 // --- Backend Configuration ---
@@ -77,23 +77,76 @@ interface Message {
   timestamp: Date;
 }
 
+interface DrillItem {
+  prompt: string;
+  answer: string;
+}
+
+interface DrillSet {
+  title: string;
+  intro: string;
+  drills: DrillItem[];
+}
+
 const hasArabicChars = (value: string) => /[\u0600-\u06FF]/.test(value);
 
 // --- Drill Data ---
-const drills = [
-  {
-    prompt: 'Build: "This is a pen"',
-    answer: 'هٰذَا قَلَمٌ',
+const DRILL_SETS: Record<string, DrillSet> = {
+  general: {
+    title: 'General Chat Drills',
+    intro: 'Build confidence with foundational Arabic sentences used in everyday conversation.',
+    drills: [
+      {
+        prompt: 'Build: "This is a pen"',
+        answer: 'هٰذَا قَلَمٌ',
+      },
+      {
+        prompt: 'Translate: أَيْنَ الْبَيْتُ؟',
+        answer: 'Where is the house?',
+      },
+      {
+        prompt: 'Build: "I have a notebook"',
+        answer: 'عِنْدِي دَفْتَرٌ',
+      },
+    ],
   },
-  {
-    prompt: 'Translate: أَيْنَ الْبَيْتُ؟',
-    answer: 'Where is the house?',
+  airport: {
+    title: 'Airport Drills',
+    intro: 'Practice useful phrases for check-in, passport control, and navigating terminals.',
+    drills: [
+      {
+        prompt: 'Translate to Arabic: "Where is gate 12?"',
+        answer: 'أَيْنَ البَوَّابَةُ 12؟',
+      },
+      {
+        prompt: 'Build in Arabic: "I have a reservation."',
+        answer: 'لَدَيَّ حَجْزٌ',
+      },
+      {
+        prompt: 'Translate: هٰذَا جَوَازُ سَفَرِي',
+        answer: 'This is my passport.',
+      },
+    ],
   },
-  {
-    prompt: 'Build: "I have a notebook"',
-    answer: 'عِنْدِي دَفْتَرٌ',
+  classroom: {
+    title: 'Classroom Drills',
+    intro: 'Practice classroom language for asking questions and responding to your teacher.',
+    drills: [
+      {
+        prompt: 'Build in Arabic: "May I ask a question?"',
+        answer: 'هَلْ يُمْكِنُنِي أَنْ أَسْأَلَ سُؤَالًا؟',
+      },
+      {
+        prompt: 'Translate: لَا أَفْهَمُ هٰذَا الدَّرْسَ',
+        answer: 'I do not understand this lesson.',
+      },
+      {
+        prompt: 'Build in Arabic: "Please repeat slowly."',
+        answer: 'مِنْ فَضْلِكَ أَعِدْ بِبُطْءٍ',
+      },
+    ],
   },
-];
+};
 
 function parseAiReply(reply: string, baseId: string): Message[] {
   const msgs: Message[] = [];
@@ -128,16 +181,25 @@ function parseAiReply(reply: string, baseId: string): Message[] {
 
 export default function ChatScreen() {
   const router = useRouter();
-  const { title, id } = useLocalSearchParams();
+  const { title, id, drillSet } = useLocalSearchParams();
   const isDrillMode = id === 'drills';
+  const activeDrillSetKey = isDrillMode && typeof drillSet === 'string' && DRILL_SETS[drillSet]
+    ? drillSet
+    : 'general';
+  const activeDrillSet = isDrillMode && typeof drillSet === 'string' && DRILL_SETS[drillSet]
+    ? DRILL_SETS[drillSet]
+    : DRILL_SETS.general;
+  const activeDrills = activeDrillSet.drills;
   
   const [currentDrillIndex, setCurrentDrillIndex] = useState(0);
+  const [drillWrongAttempts, setDrillWrongAttempts] = useState<Record<number, number>>({});
+  const [hasSwitchedToNormalChat, setHasSwitchedToNormalChat] = useState(false);
   const [messages, setMessages] = useState<Message[]>(() => {
     if (isDrillMode) {
       return [
         {
           id: 'welcome',
-          text: `Ready for practice drills? Here's your first challenge:\n\n${drills[0].prompt}`,
+          text: `Ready for ${activeDrillSet.title}?\n\n${activeDrillSet.intro}\n\nFirst challenge:\n\n${activeDrills[0].prompt}`,
           sender: 'ai',
           timestamp: new Date(),
         },
@@ -346,31 +408,205 @@ export default function ChatScreen() {
     setIsProcessing(true);
 
     try {
-      if (isDrillMode) {
-        const currentDrill = drills[currentDrillIndex];
-        
+      const drillIsActive = isDrillMode && currentDrillIndex < activeDrills.length;
+
+      if (drillIsActive) {
+        const currentDrill = activeDrills[currentDrillIndex];
+
         const removeHarakat = (str: string): string => {
           return str
             .replace(/[\u064B-\u0652\u0670]/g, '')
             .toLowerCase()
             .trim()
-            .replace(/\s+/g, ' ');
+            .replace(/\s+/g, ' ')
+            .replace(/[؟?!.,;:]/g, '');
         };
-        
+
+        const normalizeArabicForTolerance = (str: string): string => {
+          return removeHarakat(str)
+            .replace(/[أإآٱ]/g, 'ا')
+            .replace(/ى/g, 'ي')
+            .replace(/ؤ/g, 'و')
+            .replace(/ئ/g, 'ي')
+            .replace(/ة/g, 'ه')
+            .replace(/ء/g, '')
+            // STT can confuse throat-heavy openings like ع with nearby vowels.
+            .replace(/ع/g, 'ا');
+        };
+
+        const normalizeEnglishWords = (str: string): string[] => {
+          const expanded = str
+            .toLowerCase()
+            .replace(/\bdo\s*['’]?nt\b/g, 'do not');
+
+          return expanded
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean);
+        };
+
+        const ENGLISH_SYNONYM_GROUPS = [
+          ['lesson', 'class', 'session'],
+          ['teacher', 'instructor', 'professor', 'tutor'],
+          ['student', 'pupil', 'learner'],
+          ['home', 'house'],
+        ];
+
+        const ENGLISH_SYNONYM_MAP = ENGLISH_SYNONYM_GROUPS.reduce<Record<string, string>>((acc, group) => {
+          const canonical = group[0];
+          group.forEach((word) => {
+            acc[word] = canonical;
+          });
+          return acc;
+        }, {});
+
+        const normalizeEnglishForSynonyms = (str: string): string => {
+          const normalizedWords = normalizeEnglishWords(str).map((word) => ENGLISH_SYNONYM_MAP[word] ?? word);
+          return normalizedWords.join(' ');
+        };
+
+         const buildHint = (answer: string, userInput: string, attempt: number): string => {
+          const answerWordsRaw = answer.trim().split(/\s+/).filter(Boolean);
+          const userWordsRaw = userInput.trim().split(/\s+/).filter(Boolean);
+          const answerWords = answerWordsRaw.map((w) => normalizeArabicForTolerance(w));
+          const userWords = userWordsRaw.map((w) => normalizeArabicForTolerance(w));
+
+          const samePositionMatches = answerWords.reduce((count, word, index) => {
+            return count + (userWords[index] === word ? 1 : 0);
+          }, 0);
+
+          const matchedWordCount = answerWords.filter((word) => userWords.includes(word)).length;
+          const startsCorrectly = answerWords.length > 0 && userWords[0] === answerWords[0];
+
+          if (attempt === 1) {
+            if (samePositionMatches > 0) {
+              return `Hint: good start, you already have ${samePositionMatches} word(s) in the correct position. Check the remaining part.`;
+            }
+
+            if (matchedWordCount > 0) {
+              return `Hint: you're close. ${matchedWordCount} word(s) match, but the order/ending needs adjustment.`;
+            }
+
+            if (startsCorrectly) {
+              return 'Hint: your opening is correct. Focus on the second half of the sentence.';
+            }
+
+            return `Hint: start with "${answerWordsRaw[0] ?? answer}" and keep the phrase concise.`;
+          }
+
+          if (attempt === 2) {
+            if (answerWordsRaw.length > 1) {
+              return `Hint: target has ${answerWordsRaw.length} words. It starts with "${answerWordsRaw[0]}" and ends with "${answerWordsRaw[answerWordsRaw.length - 1]}".`;
+            }
+
+            return `Hint: focus on the exact pronunciation/spelling of "${answerWordsRaw[0] ?? answer}".`;
+          }
+
+          return `Hint: compare your response to the expected structure word by word.`;
+        };
+
+        if (!currentDrill) {
+          const doneMsg: Message = {
+            id: Date.now().toString() + '_ai_done',
+            text: `You've already completed ${activeDrillSet.title}. Nice work!`,
+            sender: 'ai',
+            timestamp: new Date(),
+          };
+          setMessages(prev => [...prev, doneMsg]);
+          setIsProcessing(false);
+          return;
+        }
+
+        const normalizedInput = text.trim().toLowerCase();
+        if (normalizedInput === 'next' || normalizedInput === 'skip') {
+          const nextIndex = currentDrillIndex + 1;
+          setDrillWrongAttempts((prev) => {
+            const next = { ...prev };
+            delete next[currentDrillIndex];
+            return next;
+          });
+          if (nextIndex < activeDrills.length) {
+            setCurrentDrillIndex(nextIndex);
+            const skipMsg: Message = {
+              id: Date.now().toString() + '_ai_skip',
+              text: `Skipping this one. Next challenge:\n\n${activeDrills[nextIndex].prompt}`,
+              sender: 'ai',
+              timestamp: new Date(),
+            };
+            setMessages(prev => [...prev, skipMsg]);
+          } else {
+            setCurrentDrillIndex(activeDrills.length);
+            void markPackCompleted(activeDrillSetKey);
+            const completeMsg: Message = {
+              id: Date.now().toString() + '_ai_complete',
+              text: `All done. You completed ${activeDrillSet.title}!`,
+              sender: 'ai',
+              timestamp: new Date(),
+            };
+            setMessages(prev => [...prev, completeMsg]);
+          }
+          setIsProcessing(false);
+          return;
+        }
+
         const userAnswer = removeHarakat(text);
         const expectedAnswer = removeHarakat(currentDrill.answer);
-        
-        const isCorrect = userAnswer === expectedAnswer || 
-                         userAnswer.includes(expectedAnswer) || 
-                         expectedAnswer.includes(userAnswer);
+
+        const strictMatch =
+          userAnswer === expectedAnswer ||
+          userAnswer.includes(expectedAnswer) ||
+          expectedAnswer.includes(userAnswer);
+
+        const answerLooksArabic = hasArabicChars(currentDrill.answer);
+        const userLooksArabic = hasArabicChars(text);
+
+        const tolerantUser = normalizeArabicForTolerance(text);
+        const tolerantExpected = normalizeArabicForTolerance(currentDrill.answer);
+
+        const toleranceMatch =
+          answerLooksArabic &&
+          userLooksArabic &&
+          (tolerantUser === tolerantExpected ||
+            tolerantUser.includes(tolerantExpected) ||
+            tolerantExpected.includes(tolerantUser));
+
+        const expectedLooksEnglish = /[a-z]/i.test(currentDrill.answer) && !answerLooksArabic;
+        const userLooksEnglish = /[a-z]/i.test(text) && !userLooksArabic;
+
+        const synonymExpected = normalizeEnglishForSynonyms(currentDrill.answer);
+        const synonymUser = normalizeEnglishForSynonyms(text);
+
+        const synonymMatch =
+          expectedLooksEnglish &&
+          userLooksEnglish &&
+          synonymExpected.length > 0 &&
+          synonymUser.length > 0 &&
+          (synonymUser === synonymExpected ||
+            synonymUser.includes(synonymExpected) ||
+            synonymExpected.includes(synonymUser));
+
+        const isCorrect = strictMatch || toleranceMatch || synonymMatch;
+        const acceptedByTolerance = !strictMatch && (toleranceMatch || synonymMatch);
         
         if (isCorrect) {
           void addProgress(10);
+          setDrillWrongAttempts((prev) => {
+            const next = { ...prev };
+            delete next[currentDrillIndex];
+            return next;
+          });
 
           const nextIndex = currentDrillIndex + 1;
-          if (nextIndex < drills.length) {
+          const toleranceNote = acceptedByTolerance
+            ? answerLooksArabic
+              ? '\n\nNote: Accepted with pronunciation tolerance because speech transcription can mix similar letters (for example, alif/ayn-style sounds).'
+              : '\n\nNote: Accepted with meaning tolerance because multiple English words can map to the same Arabic meaning (for example, class/lesson).'
+            : '';
+
+          if (nextIndex < activeDrills.length) {
             setCurrentDrillIndex(nextIndex);
-            const feedback = `✓ Correct! Well done!\n\nNext drill:`+ `\n\n${drills[nextIndex].prompt}`;
+            const feedback = `✓ Correct! Well done!${toleranceNote}\n\nNext drill:` + `\n\n${activeDrills[nextIndex].prompt}`;
             const aiMsg: Message = { 
               id: Date.now().toString() + '_ai', 
               text: feedback, 
@@ -379,7 +615,9 @@ export default function ChatScreen() {
             };
             setMessages(prev => [...prev, aiMsg]);
           } else {
-            const feedback = `✓ Correct! Excellent work!\n\n🎉 You've completed all practice drills!\n\nGreat job practicing Arabic!`;
+            setCurrentDrillIndex(activeDrills.length);
+            void markPackCompleted(activeDrillSetKey);
+            const feedback = `✓ Correct! Excellent work!${toleranceNote}\n\n🎉 You've completed ${activeDrillSet.title}!\n\nGreat job practicing Arabic!`;
             const aiMsg: Message = { 
               id: Date.now().toString() + '_ai', 
               text: feedback, 
@@ -389,7 +627,17 @@ export default function ChatScreen() {
             setMessages(prev => [...prev, aiMsg]);
           }
         } else {
-          const feedback = `Not quite. The suggested answer is:\n\n${currentDrill.answer}\n\nTry again or move to the next drill by typing 'next'`;
+          const nextAttempt = (drillWrongAttempts[currentDrillIndex] ?? 0) + 1;
+          setDrillWrongAttempts((prev) => ({ ...prev, [currentDrillIndex]: nextAttempt }));
+
+          const pronunciationNote = answerLooksArabic
+            ? '\n\nNote: We allow some pronunciation/transcription variation (like similar-sounding letters such as alif/ayn), so keep trying if your spoken Arabic was close.'
+            : '';
+
+          const feedback = nextAttempt < 3
+            ? `Not quite yet. ${buildHint(currentDrill.answer, text, nextAttempt)}${pronunciationNote}\n\nTry again or type 'next' to skip.`
+            : `Not quite. The suggested answer is:\n\n${currentDrill.answer}${pronunciationNote}\n\nTry again or move to the next drill by typing 'next'.`;
+
           const aiMsg: Message = { 
             id: Date.now().toString() + '_ai', 
             text: feedback, 
@@ -400,6 +648,17 @@ export default function ChatScreen() {
         }
         setIsProcessing(false);
         return;
+      }
+
+      if (isDrillMode && !hasSwitchedToNormalChat) {
+        setHasSwitchedToNormalChat(true);
+        const transitionMsg: Message = {
+          id: Date.now().toString() + '_ai_transition',
+          text: 'Drills are complete. You are now in normal chat mode, so feel free to continue the conversation naturally.',
+          sender: 'ai',
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, transitionMsg]);
       }
 
       console.log(`Sending to: ${BACKEND_URL}/chat`);

@@ -3,7 +3,6 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { Ionicons } from '@expo/vector-icons';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import Constants from 'expo-constants';
-import { useRouter } from 'expo-router';
 import React, { useRef, useState } from 'react';
 import { Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -193,21 +192,6 @@ const cultureNotes = [
   },
 ];
 
-const drills = [
-  {
-    prompt: 'Build: "This is a pen"',
-    answer: 'هٰذَا قَلَمٌ',
-  },
-  {
-    prompt: 'Translate: أَيْنَ الْبَيْتُ؟',
-    answer: 'Where is the house?',
-  },
-  {
-    prompt: 'Build: "I have a notebook"',
-    answer: 'عِنْدِي دَفْتَرٌ',
-  },
-];
-
 const letterNamesArabic: Record<string, string> = {
   'ا': 'أَلِف', 'ب': 'بَاء', 'ت': 'تَاء', 'ث': 'ثَا', 'ج': 'جِييم',
   'ح': 'حَ', 'خ': 'خَاي', 'د': 'دَال', 'ذ': 'ذَال', 'ر': 'رَاا',
@@ -218,7 +202,6 @@ const letterNamesArabic: Record<string, string> = {
 };
 
 export default function LearnScreen() {
-  const router = useRouter();
   const [expandedLetter, setExpandedLetter] = useState<number | null>(null);
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
@@ -309,13 +292,6 @@ export default function LearnScreen() {
       console.error('TTS error:', error);
       setPlayingId(null);
     }
-  };
-
-  const handleStartDrills = () => {
-    router.push({
-      pathname: '/chat/[id]',
-      params: { id: 'drills', title: 'Practice Drills' },
-    });
   };
 
   return (
@@ -495,17 +471,6 @@ export default function LearnScreen() {
           </View>
         ))}
 
-        <Text style={[styles.sectionTitle, { color: textColor }]}>Drills</Text>
-        <TouchableOpacity style={styles.drillStartCard} onPress={handleStartDrills} activeOpacity={0.8}>
-          <View style={styles.drillStartContent}>
-            <Ionicons name="play-circle-outline" size={32} color="#007AFF" />
-            <View style={styles.drillStartText}>
-              <Text style={[styles.drillStartTitle, { color: textColor }]}>Start Practice Drill</Text>
-              <Text style={[styles.drillStartDesc, { color: subTextColor }]}>Test your skills with interactive drills. Type or speak your answers!</Text>
-            </View>
-          </View>
-          <Ionicons name="chevron-forward" size={24} color="#007AFF" />
-        </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );

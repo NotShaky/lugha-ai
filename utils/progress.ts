@@ -11,6 +11,10 @@ const normalizeActivityDays = (days: string[]) => {
   return Array.from(new Set(days)).sort().slice(-60);
 };
 
+const normalizeCompletedPacks = (packs: string[]) => {
+  return Array.from(new Set(packs.filter(Boolean))).sort();
+};
+
 // Record the current day as active for the signed-in user.
 export async function markTodayActivity() {
   const { data: { session } } = await supabase.auth.getSession();
@@ -75,4 +79,55 @@ export async function addProgress(xpToAdd: number) {
     .eq('id', userId);
 
   await markTodayActivity();
+}
+
+// Read completed drill packs from the user's profile row.
+export async function getCompletedPacks(userId?: string): Promise<string[]> {
+  let targetUserId = userId;
+
+  if (!targetUserId) {
+    const { data: { session } } = await supabase.auth.getSession();
+    targetUserId = session?.user?.id;
+  }
+
+  if (!targetUserId) return [];
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('completed_packs')
+    .eq('id', targetUserId)
+    .single();
+
+  if (error || !data) return [];
+
+  const raw = data.completed_packs;
+  if (Array.isArray(raw)) {
+    return normalizeCompletedPacks(raw.map((item) => String(item)));
+  }
+
+  return [];
+}
+
+// Persist a completed drill pack on the user's profile row.
+export async function markPackCompleted(packId: string): Promise<void> {
+  if (!packId) return;
+
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return;
+
+  const userId = session.user.id;
+  const current = await getCompletedPacks(userId);
+
+  if (current.includes(packId)) return;
+
+  const next = normalizeCompletedPacks([...current, packId]);
+
+  const { error } = await supabase
+    .from('profiles')
+    .update({ completed_packs: next })
+    .eq('id', userId);
+
+  if (error) {
+    console.warn('Failed to save completed packs:', error.message);
+  }
 }
