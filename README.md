@@ -9,7 +9,7 @@ Lugha AI is an Arabic language learning app powered by AI. It combines chat prac
 - [Expo Go](https://expo.dev/go) on a physical device if you want to test on mobile
 - A [Groq API key](https://console.groq.com/)
 - A Supabase project for auth and profile stats
-- Optional: Redis if you want conversation history persistence configured
+- Redis for conversation history persistence 
 
 ## Setup
 
