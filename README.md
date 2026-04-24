@@ -28,18 +28,16 @@ pip install -r requirements.txt
 
 ### 3. Configure backend environment variables
 
-Create a `.env` file inside `backend/` and add the keys you need:
+Copy `backend/.env.example` to `backend/.env` and fill in your own values:
 
 ```env
 GROQ_API_KEY=your_api_key_here
-SUPABASE_URL=your_supabase_url_here
-SUPABASE_KEY=your_supabase_key_here
+SUPABASE_URL=https://kpncjxfyzfgtxsyrrnbc.supabase.co
+SUPABASE_KEY=sb_publishable_2b677eiHDDHLCxOVFTrKqg_7T11eOo7 
 REDIS_URL=your_redis_url_here
 ```
 
 Only `GROQ_API_KEY` is required for the core chat flow. `SUPABASE_URL`, `SUPABASE_KEY`, and `REDIS_URL` are optional for backend features.
-
-Set the Supabase client values in `utils/supabase.ts` for the frontend.
 
 ### 4. Start the backend server
 
