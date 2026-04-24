@@ -36,6 +36,7 @@ class HistoryMessage(BaseModel):
 class ChatRequest(BaseModel):
     text: str
     session_id: str
+    user_id: str  
 
 class TTSRequest(BaseModel):
     text: str
@@ -123,48 +124,54 @@ async def chat_with_ai(request: ChatRequest):
     if not GROQ_API_KEY:
         raise HTTPException(status_code=500, detail="Groq API key not configured")
 
-    print(f"Calling Groq API for session: {request.session_id}...")
+    print(f"Fetching permanent history for session: {request.session_id}...")
     
-    history_key = f"chat_history:{request.session_id}"
-    chat_history = []
+    # 1. Fetch the conversation history from Supabase (ordered oldest to newest)
+    history_response = supabase.table("messages").select("role, content").eq("session_id", request.session_id).order("created_at", desc=False).execute()
     
-    if redis_client:
-        stored_history = redis_client.get(history_key)
-        if stored_history:
-            chat_history = json.loads(stored_history)
-            
-    api_messages = [
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT
-        }
-    ]
+    chat_history = history_response.data if history_response.data else []
     
-    for msg in chat_history:
-        api_messages.append(msg)
-        
-    api_messages.append({
-        "role": "user",
-        "content": request.text
-    })
+    # Candor Note: LLMs have "token limits". If a conversation has 10,000 messages, it will crash. 
+    # We grab the last 40 messages to give it great long-term memory without breaking the AI.
+    recent_history = chat_history[-40:]
 
+    # 2. Start with the System Prompt
+    api_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    
+    # 3. Append the Supabase conversation history
+    for msg in recent_history:
+        api_messages.append({"role": msg["role"], "content": msg["content"]})
+        
+    # 4. Append the newest user message
+    api_messages.append({"role": "user", "content": request.text})
+
+    # 5. Get the AI Response
     chat_completion = client.chat.completions.create(
         messages=api_messages,
         model="llama-3.3-70b-versatile",
         temperature=0.5,
     )
-    
     ai_response = chat_completion.choices[0].message.content
     
-    if redis_client:
-        chat_history.append({"role": "user", "content": request.text})
-        chat_history.append({"role": "assistant", "content": ai_response})
+    # 6. Save BOTH messages to Supabase permanently!
+    if supabase:
+        # Save User Message
+        supabase.table("messages").insert({
+            "session_id": request.session_id,
+            "user_id": request.user_id,
+            "role": "user",
+            "content": request.text
+        }).execute()
         
-        chat_history = chat_history[-10:]
-        
-        redis_client.setex(history_key, 86400, json.dumps(chat_history))
+        # Save AI Message
+        supabase.table("messages").insert({
+            "session_id": request.session_id,
+            "user_id": request.user_id,
+            "role": "assistant",
+            "content": ai_response
+        }).execute()
 
-    return {"response": ai_response, "reply": ai_response}
+    return {"response": ai_response}
 
 # Health check.
 @app.get("/")

@@ -24,6 +24,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { addProgress } from '../../utils/progress';
+import { supabase } from '../../utils/supabase';
 
 // --- Backend Configuration ---
 const getBackendUrl = () => {
@@ -409,12 +410,23 @@ export default function ChatScreen() {
           content: m.text
         }));
 
+      // 1. Get the logged-in user's ID securely from Supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
+
+      if (!userId) {
+        console.error("User not logged in!");
+        return; 
+      }
+
+      // 2. Call standard text chat endpoint WITH the user_id attached
       const response = await fetchWithTimeout(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          text,
+          text,            
           session_id: id,
+          user_id: userId, 
         }),
       }, 15000);
       

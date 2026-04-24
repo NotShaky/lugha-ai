@@ -27,9 +27,15 @@ const isWeb = Platform.OS === 'web';
 const isBrowser = typeof window !== 'undefined';
 
 const webStorage = {
-  getItem: (key: string) => Promise.resolve(isBrowser ? window.localStorage.getItem(key) : null),
-  setItem: (key: string, value: string) => Promise.resolve(isBrowser ? window.localStorage.setItem(key, value) : undefined),
-  removeItem: (key: string) => Promise.resolve(isBrowser ? window.localStorage.removeItem(key) : undefined),
+  getItem: (key: string): string | null => {
+    return isBrowser ? window.localStorage.getItem(key) : null;
+  },
+  setItem: (key: string, value: string): void => {
+    if (isBrowser) window.localStorage.setItem(key, value);
+  },
+  removeItem: (key: string): void => {
+    if (isBrowser) window.localStorage.removeItem(key);
+  },
 };
 
 export const supabase = supabaseUrl && supabaseAnonKey
