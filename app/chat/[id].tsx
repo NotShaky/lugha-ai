@@ -77,6 +77,8 @@ interface Message {
   timestamp: Date;
 }
 
+const hasArabicChars = (value: string) => /[\u0600-\u06FF]/.test(value);
+
 // --- Drill Data ---
 const drills = [
   {
@@ -466,8 +468,21 @@ export default function ChatScreen() {
 
     if (Platform.OS === 'web') {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const mediaRecorder = new MediaRecorder(stream);
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            channelCount: 1,
+          },
+        });
+
+        const preferredMimeType = 'audio/webm;codecs=opus';
+        const recorderOptions = MediaRecorder.isTypeSupported(preferredMimeType)
+          ? { mimeType: preferredMimeType, audioBitsPerSecond: 128000 }
+          : undefined;
+
+        const mediaRecorder = new MediaRecorder(stream, recorderOptions);
         const chunks: Blob[] = [];
 
         mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
@@ -476,7 +491,7 @@ export default function ChatScreen() {
 
           setIsProcessing(true);
           try {
-            const blob = new Blob(chunks, { type: 'audio/webm' });
+            const blob = new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' });
             const formData = new FormData();
             formData.append('file', blob, 'recording.webm');
 
@@ -632,6 +647,15 @@ export default function ChatScreen() {
             if (englishMatch) {
               englishPart = englishMatch[1].replace(/^\(English:\s*/, '').replace(/\)$/, '').trim();
               arabicPart = item.text.replace(englishMatch[0], '').trim();
+
+              const mainLooksIncomplete =
+                /(?:meant to|to write|to say|correction|translate)\s*\.?$/i.test(arabicPart) ||
+                arabicPart.length < 10;
+
+              if (!hasArabicChars(arabicPart) && mainLooksIncomplete && englishPart) {
+                arabicPart = englishPart;
+                englishPart = null;
+              }
             }
           }
 
@@ -687,7 +711,7 @@ export default function ChatScreen() {
               <Text style={[
                 styles.text, 
                 item.sender === 'user' ? styles.textUser : styles.textAi,
-                isAi && styles.textRtl,
+                isAi && hasArabicChars(arabicPart) && styles.textRtl,
               ]}>
                 {arabicPart}
               </Text>
@@ -770,6 +794,9 @@ export default function ChatScreen() {
           )}
 
         </View>
+        <Text style={styles.recordingHint}>
+          Voice tip: background audio can reduce transcription accuracy. For best results, pause playback.
+        </Text>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -943,6 +970,13 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     paddingHorizontal: 6,
     paddingVertical: 6,
+  },
+  recordingHint: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#6B7280',
+    lineHeight: 16,
+    paddingHorizontal: 4,
   },
   textInput: {
     flex: 1,

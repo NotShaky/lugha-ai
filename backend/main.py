@@ -125,14 +125,25 @@ async def chat_with_ai(request: ChatRequest):
         raise HTTPException(status_code=500, detail="Groq API key not configured")
 
     print(f"Fetching permanent history for session: {request.session_id}...")
-    
-    # 1. Fetch the conversation history from Supabase (ordered oldest to newest)
-    history_response = supabase.table("messages").select("role, content").eq("session_id", request.session_id).order("created_at", desc=False).execute()
-    
-    chat_history = history_response.data if history_response.data else []
+
+    # 1. Fetch the conversation history from Supabase (ordered oldest to newest).
+    chat_history = []
+    if supabase:
+        try:
+            history_response = (
+                supabase
+                .table("messages")
+                .select("role, content")
+                .eq("session_id", request.session_id)
+                .order("created_at", desc=False)
+                .execute()
+            )
+            chat_history = history_response.data if history_response.data else []
+        except Exception as e:
+            print(f"Supabase history fetch failed; continuing without history: {e}")
     
     # Candor Note: LLMs have "token limits". If a conversation has 10,000 messages, it will crash. 
-    # We grab the last 40 messages to give it great long-term memory without breaking the AI.
+    # grab the last 40 messages to give it great long-term memory without breaking the AI.
     recent_history = chat_history[-40:]
 
     # 2. Start with the System Prompt
@@ -153,25 +164,28 @@ async def chat_with_ai(request: ChatRequest):
     )
     ai_response = chat_completion.choices[0].message.content
     
-    # 6. Save BOTH messages to Supabase permanently!
+    # 6. Save BOTH messages to Supabase permanently when possible.
     if supabase:
-        # Save User Message
-        supabase.table("messages").insert({
-            "session_id": request.session_id,
-            "user_id": request.user_id,
-            "role": "user",
-            "content": request.text
-        }).execute()
-        
-        # Save AI Message
-        supabase.table("messages").insert({
-            "session_id": request.session_id,
-            "user_id": request.user_id,
-            "role": "assistant",
-            "content": ai_response
-        }).execute()
+        try:
+            # Save User Message
+            supabase.table("messages").insert({
+                "session_id": request.session_id,
+                "user_id": request.user_id,
+                "role": "user",
+                "content": request.text
+            }).execute()
 
-    return {"response": ai_response}
+            # Save AI Message
+            supabase.table("messages").insert({
+                "session_id": request.session_id,
+                "user_id": request.user_id,
+                "role": "assistant",
+                "content": ai_response
+            }).execute()
+        except Exception as e:
+            print(f"Supabase history save failed; returning AI response anyway: {e}")
+
+    return {"response": ai_response, "reply": ai_response}
 
 # Health check.
 @app.get("/")

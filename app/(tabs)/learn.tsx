@@ -166,6 +166,33 @@ const grammarQuickBits = [
   },
 ];
 
+const cultureNotes = [
+  {
+    title: 'MSA vs Dialect in Real Life',
+    icon: 'language-outline',
+    note: 'Modern Standard Arabic (Fusha) is used in news, formal writing, and education. Daily conversation usually happens in local dialects.',
+    example: 'Example: "How are you?" can be "كَيْفَ حَالُكَ؟" (MSA) or "إِزَّيَّك؟" (Egyptian).',
+  },
+  {
+    title: 'Common Regional Differences',
+    icon: 'map-outline',
+    note: 'Some sounds and words change by region. The letter ق is often pronounced differently across countries.',
+    example: 'Example: ق can sound like q, g, or a glottal stop depending on the dialect.',
+  },
+  {
+    title: 'Politeness and Greetings',
+    icon: 'hand-left-outline',
+    note: 'Greetings are important. Starting with a warm greeting makes conversations feel respectful and natural.',
+    example: 'Try: "السَّلَامُ عَلَيْكُمْ" then respond with "وَعَلَيْكُمُ السَّلَام".',
+  },
+  {
+    title: 'Formal vs Casual Address',
+    icon: 'people-outline',
+    note: 'Use more formal language with elders, teachers, and in professional settings. Casual forms are fine with friends.',
+    example: 'Using respectful phrases like "مِنْ فَضْلِكَ" (please) goes a long way.',
+  },
+];
+
 const drills = [
   {
     prompt: 'Build: "This is a pen"',
@@ -453,6 +480,21 @@ export default function LearnScreen() {
           </View>
         ))}
 
+        <Text style={[styles.sectionTitle, { color: textColor }]}>Culture Notes</Text>
+        <Text style={[styles.sectionSub, { color: subTextColor }]}>Dialect awareness and social etiquette for natural conversations</Text>
+        {cultureNotes.map((item) => (
+          <View key={item.title} style={[styles.cultureCard, { backgroundColor: cardBg }]}>
+            <View style={styles.cultureHeader}>
+              <View style={styles.cultureIconWrap}>
+                <Ionicons name={item.icon as any} size={18} color="#005F73" />
+              </View>
+              <Text style={[styles.cultureTitle, { color: textColor }]}>{item.title}</Text>
+            </View>
+            <Text style={[styles.cultureNote, { color: mutedTextColor }]}>{item.note}</Text>
+            <Text style={styles.cultureExample}>{item.example}</Text>
+          </View>
+        ))}
+
         <Text style={[styles.sectionTitle, { color: textColor }]}>Drills</Text>
         <TouchableOpacity style={styles.drillStartCard} onPress={handleStartDrills} activeOpacity={0.8}>
           <View style={styles.drillStartContent}>
@@ -693,6 +735,43 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#005F73',
     fontWeight: '600',
+  },
+  cultureCard: {
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E2ECEC',
+  },
+  cultureHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  cultureIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#E7F4F4',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cultureTitle: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  cultureNote: {
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 6,
+  },
+  cultureExample: {
+    fontSize: 13,
+    color: '#0A9396',
+    fontWeight: '600',
+    lineHeight: 18,
   },
   drillStack: {
     gap: 10,

@@ -3,10 +3,12 @@ import { createClient } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 import 'react-native-url-polyfill/auto';
 
+type SupabaseLike = ReturnType<typeof createClient>;
+
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? process.env.SUPABASE_KEY;
 
-const createMissingConfigClient = () => {
+const createMissingConfigClient = (): SupabaseLike => {
   const error = new Error(
     'Supabase environment variables are missing. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in the root .env file.',
   );
@@ -18,7 +20,7 @@ const createMissingConfigClient = () => {
     apply() {
       return Promise.reject(error);
     },
-  });
+  }) as unknown as SupabaseLike;
 
   return missingClient;
 };
@@ -38,7 +40,7 @@ const webStorage = {
   },
 };
 
-export const supabase = supabaseUrl && supabaseAnonKey
+export const supabase: SupabaseLike = supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         storage: isWeb ? webStorage : AsyncStorage,
