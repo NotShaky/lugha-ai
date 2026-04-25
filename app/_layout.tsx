@@ -21,7 +21,6 @@ export default function RootLayout() {
   // --- Auth State ---
   const [session, setSession] = useState<Session | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
-  
   const segments = useSegments();
   const router = useRouter();
 

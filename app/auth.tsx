@@ -23,7 +23,7 @@ export default function AuthScreen() {
     const normalizedEmail = email.trim().toLowerCase();
 
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
         email: normalizedEmail,
         password,
       });

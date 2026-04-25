@@ -16,6 +16,13 @@ const PACK_LABELS: Record<string, string> = {
   adaptive: 'Adaptive Mastery Pack',
 };
 
+const PERSONA_OPTIONS = [
+  { id: 'University Student', icon: '🎓', desc: 'Focus on MSA and grammar rules' },
+  { id: 'Heritage Learner', icon: '🌍', desc: 'Connect with roots & improve literacy' },
+  { id: 'Independent Learner', icon: '✈️', desc: 'Survival Arabic for travel & business' },
+  { id: 'Faith-Based Learner', icon: '📖', desc: 'Understand classical texts & Qur\'an' },
+];
+
 export default function ProfileScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme() ?? 'light';
@@ -32,6 +39,8 @@ export default function ProfileScreen() {
   const [streak, setStreak] = useState(0);
   const [activeDays, setActiveDays] = useState<string[]>([]);
   const [completedPacks, setCompletedPacks] = useState<string[]>([]);
+  const [persona, setPersona] = useState<string>('');
+  const [savingPersona, setSavingPersona] = useState(false);
   const [loading, setLoading] = useState(false);
 
   // Build the last 7 days chart from stored activity dates.
@@ -78,7 +87,7 @@ export default function ProfileScreen() {
 
       const { data, error } = await supabase
         .from('profiles')
-        .select('xp_points, streak, completed_packs')
+        .select('xp_points, streak, completed_packs, persona')
         .eq('id', session.user.id)
         .single();
 
@@ -86,17 +95,19 @@ export default function ProfileScreen() {
         setXp(data.xp_points || 0);
         setStreak(data.streak || 0);
         setCompletedPacks(Array.isArray(data.completed_packs) ? data.completed_packs.map((item: unknown) => String(item)) : []);
+        setPersona(typeof data.persona === 'string' ? data.persona : '');
       } else if (error) {
         // Fallback for profiles tables that do not yet include completed_packs.
         const { data: fallback } = await supabase
           .from('profiles')
-          .select('xp_points, streak')
+          .select('xp_points, streak, persona')
           .eq('id', session.user.id)
           .single();
 
         if (fallback) {
           setXp(fallback.xp_points || 0);
           setStreak(fallback.streak || 0);
+          setPersona(typeof fallback.persona === 'string' ? fallback.persona : '');
         }
         setCompletedPacks([]);
       }
@@ -129,6 +140,33 @@ export default function ProfileScreen() {
     }
 
     router.replace('/auth');
+  };
+
+  const savePersona = async (personaId: string) => {
+    setSavingPersona(true);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        Alert.alert('Sign In Required', 'Please sign in again to update your learning profile.');
+        return;
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .upsert({ id: session.user.id, persona: personaId }, { onConflict: 'id' });
+
+      if (error) {
+        Alert.alert('Save Failed', error.message);
+        return;
+      }
+
+      setPersona(personaId);
+      Alert.alert('Saved', 'Your learning profile has been updated.');
+    } finally {
+      setSavingPersona(false);
+    }
   };
 
   return (
@@ -202,6 +240,38 @@ export default function ProfileScreen() {
               </View>
             ))}
           </View>
+        </View>
+
+        <View style={[styles.activityCard, { backgroundColor: cardBg }]}> 
+          <View style={styles.activityHeader}>
+            <Text style={[styles.activityTitle, { color: textColor }]}>Learning Profile</Text>
+            <Text style={styles.activityMeta}>{persona || 'Not set'}</Text>
+          </View>
+          <Text style={styles.personaHelpText}>Choose how you want Lugha AI to tailor explanations and examples.</Text>
+          <View style={styles.personaGrid}>
+            {PERSONA_OPTIONS.map((option) => {
+              const selected = persona === option.id;
+
+              return (
+                <TouchableOpacity
+                  key={option.id}
+                  style={[
+                    styles.personaCard,
+                    { backgroundColor: selected ? '#EAF2FF' : '#F7F8FA', borderColor: selected ? '#007AFF' : '#ECEEF2' },
+                  ]}
+                  activeOpacity={0.85}
+                  onPress={() => void savePersona(option.id)}
+                  disabled={savingPersona}
+                >
+                  <Text style={styles.personaIcon}>{option.icon}</Text>
+                  <Text style={styles.personaTitle}>{option.id}</Text>
+                  <Text style={styles.personaDesc}>{option.desc}</Text>
+                  {selected && <Text style={styles.personaSelected}>Selected</Text>}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {savingPersona && <Text style={styles.personaSaving}>Saving learning profile...</Text>}
         </View>
 
         <Text style={[styles.sectionTitle, { color: textColor }]}>Settings</Text>
@@ -385,6 +455,50 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#8E8E93',
     lineHeight: 18,
+  },
+  personaHelpText: {
+    fontSize: 13,
+    color: '#8E8E93',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  personaGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  personaCard: {
+    width: '48%',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+  },
+  personaIcon: {
+    fontSize: 24,
+    marginBottom: 8,
+  },
+  personaTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111',
+    marginBottom: 4,
+  },
+  personaDesc: {
+    fontSize: 12,
+    color: '#555',
+    lineHeight: 16,
+  },
+  personaSelected: {
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#007AFF',
+  },
+  personaSaving: {
+    marginTop: 10,
+    fontSize: 12,
+    color: '#8E8E93',
+    fontStyle: 'italic',
   },
   settingsGroup: {
     borderRadius: 16,

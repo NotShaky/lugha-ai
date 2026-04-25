@@ -925,7 +925,22 @@ export default function ChatScreen() {
         return; 
       }
 
-      // 2. Call standard text chat endpoint WITH the user_id attached
+      let userPersona = 'General Learner';
+      try {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('persona')
+          .eq('id', userId)
+          .single();
+
+        if (typeof profile?.persona === 'string' && profile.persona.trim()) {
+          userPersona = profile.persona;
+        }
+      } catch (error) {
+        console.warn('Failed to load persona for chat request:', error);
+      }
+
+      // 2. Call standard text chat endpoint WITH the user_id and persona attached
       const response = await fetchWithTimeout(`${BACKEND_URL}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -933,6 +948,7 @@ export default function ChatScreen() {
           text,            
           session_id: id,
           user_id: userId, 
+          persona: userPersona,
         }),
       }, 15000);
       

@@ -38,6 +38,7 @@ class ChatRequest(BaseModel):
     text: str
     session_id: str
     user_id: str  
+    persona: Optional[str] = "General Learner"
 
 class TTSRequest(BaseModel):
     text: str
@@ -319,8 +320,19 @@ async def chat_with_ai(request: ChatRequest):
     # grab the last 40 messages to give it great long-term memory without breaking the AI.
     recent_history = chat_history[-40:]
 
-    # 2. Start with the System Prompt
-    api_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    dynamic_prompt = SYSTEM_PROMPT + f"\n\nThe user's learning profile is: {request.persona or 'General Learner'}."
+
+    if request.persona == "Faith-Based Learner":
+        dynamic_prompt += " Whenever possible, include vocabulary and examples from classical Islamic texts and the Qur'an."
+    elif request.persona == "University Student":
+        dynamic_prompt += " Strictly use Modern Standard Arabic (MSA). Focus heavily on explaining complex grammar concepts and root patterns."
+    elif request.persona == "Independent Learner":
+        dynamic_prompt += " Focus on practical, conversational 'survival' Arabic. Emphasize dialects and common slang used in daily business or travel."
+    elif request.persona == "Heritage Learner":
+        dynamic_prompt += " The user likely has good listening skills but struggles with literacy. Help bridge the gap between spoken dialects and written MSA."
+
+    # 2. Start with the tailored System Prompt
+    api_messages = [{"role": "system", "content": dynamic_prompt}]
     
     # 3. Append the Supabase conversation history
     for msg in recent_history:
