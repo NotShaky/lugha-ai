@@ -14,7 +14,7 @@ import uuid
 import re
 from typing import Any, Optional, List
 from supabase import create_client, Client
-import redis
+
 
 env_path = os.path.join(os.path.dirname(__file__), ".env")
 load_dotenv(dotenv_path=env_path)
@@ -70,11 +70,7 @@ if SUPABASE_URL and SUPABASE_KEY:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     print("Supabase Connected.")
 
-REDIS_URL = os.getenv("REDIS_URL")
-redis_client = None
-if REDIS_URL:
-    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-    print("Redis Connected.")
+
 
 # Prompt tuned for Arabic tutoring, corrections, and concise replies.
 SYSTEM_PROMPT = """You are a helpful and friendly Arabic language tutor. The user may write in Arabic, English, or a mix of both. You must ONLY use English and Arabic in your responses. NEVER use any other languages.

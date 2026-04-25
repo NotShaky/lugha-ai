@@ -4,5 +4,4 @@ python-multipart
 groq
 edge-tts
 python-dotenv
-supabase
-redis
+supabase

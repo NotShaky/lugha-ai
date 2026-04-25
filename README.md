@@ -9,7 +9,6 @@ Lugha AI is an Arabic language learning app powered by AI. It combines chat prac
 - [Expo Go](https://expo.dev/go) on a physical device if you want to test on mobile
 - A [Groq API key](https://console.groq.com/)
 - A Supabase project for auth and profile stats
-- Redis for conversation history persistence 
 
 ## Setup
 
@@ -19,10 +18,23 @@ Lugha AI is an Arabic language learning app powered by AI. It combines chat prac
 npm install
 ```
 
-### 2. Install backend dependencies
+### 2. Setup Backend (Python)
+
+It is recommended to use a virtual environment:
 
 ```bash
 cd backend
+
+# Create a virtual environment inside the backend folder
+python -m venv venv
+
+# Activate the virtual environment
+# On Windows:
+.\venv\Scripts\activate
+# On macOS/Linux:
+source venv/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
 ```
 
@@ -34,10 +46,9 @@ Copy `backend/.env.example` to `backend/.env` and fill in your own values:
 GROQ_API_KEY=your_api_key_here
 SUPABASE_URL=https://kpncjxfyzfgtxsyrrnbc.supabase.co
 SUPABASE_KEY=sb_publishable_2b677eiHDDHLCxOVFTrKqg_7T11eOo7 
-REDIS_URL=your_redis_url_here
 ```
 
-Only `GROQ_API_KEY` is required for the core chat flow. `SUPABASE_URL`, `SUPABASE_KEY`, and `REDIS_URL` are optional for backend features.
+Only `GROQ_API_KEY` is required for the core chat flow. `SUPABASE_URL` and `SUPABASE_KEY` are optional for backend features.
 
 ### 4. Start the backend server
 
@@ -45,8 +56,10 @@ The backend needs to be running before you use chat, voice transcription, or TTS
 
 ```bash
 cd backend
-..\.venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+# If venv is active, just run:
+python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 ```
+
 
 ### 5. Start the Expo app
 
