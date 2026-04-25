@@ -13,6 +13,7 @@ const PACK_LABELS: Record<string, string> = {
   general: 'General Chat Drills',
   airport: 'At the Airport',
   classroom: 'In the Classroom',
+  adaptive: 'Adaptive Mastery Pack',
 };
 
 export default function ProfileScreen() {

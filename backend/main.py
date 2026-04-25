@@ -11,7 +11,8 @@ from pathlib import Path
 import edge_tts
 import asyncio
 import uuid
-from typing import Optional, List 
+import re
+from typing import Any, Optional, List
 from supabase import create_client, Client
 import redis
 
@@ -43,6 +44,12 @@ class TTSRequest(BaseModel):
     voice: str = "ar-SA-HamedNeural"
     rate: str = "-10%"
     pitch: str = "+0Hz"
+
+
+class AdaptiveDrillsRequest(BaseModel):
+    user_id: str
+    drill_set: Optional[str] = None
+    count: int = 3
 
 # External service configuration.
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -79,6 +86,172 @@ If the user writes in Arabic, carefully evaluate it for mistakes. IF AND ONLY IF
 If the user's Arabic is perfectly correct, DO NOT output a correction line at all.
 Make sure there is a blank line after the correction (if you made one). Then, reply normally in Arabic to continue the conversation. Keep your conversational answers concise. 
 Finally, add an English translation of ONLY your conversational reply on a new line in parentheses, exactly like: "(English: [translation of the Arabic reply])"."""
+
+
+def _strip_json_code_fences(raw_text: str) -> str:
+    cleaned = raw_text.strip()
+    cleaned = re.sub(r"^```(?:json)?\\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\\s*```$", "", cleaned)
+    return cleaned.strip()
+
+
+def _fallback_adaptive_drills(recent_errors: list[dict[str, Any]], count: int) -> dict[str, Any]:
+    fallback_drills: list[dict[str, str]] = []
+
+    for row in recent_errors:
+        expected = str(row.get("expected_answer") or "").strip()
+        prompt = str(row.get("drill_prompt") or "").strip()
+
+        if expected and prompt:
+            fallback_drills.append({
+                "prompt": f"Try again: {prompt}",
+                "answer": expected,
+            })
+
+        if len(fallback_drills) >= count:
+            break
+
+    if len(fallback_drills) < count:
+        defaults = [
+            {
+                "prompt": "Translate to Arabic: \"Where is the house?\"",
+                "answer": "أَيْنَ الْبَيْتُ؟",
+            },
+            {
+                "prompt": "Build in Arabic: \"I have a notebook.\"",
+                "answer": "عِنْدِي دَفْتَرٌ",
+            },
+            {
+                "prompt": "Translate to English: هٰذِهِ مَدْرَسَةٌ",
+                "answer": "This is a school.",
+            },
+        ]
+
+        for item in defaults:
+            if len(fallback_drills) >= count:
+                break
+            fallback_drills.append(item)
+
+    return {
+        "title": "Adaptive Practice Drills",
+        "intro": "These drills focus on your recent weak points.",
+        "drills": fallback_drills[:count],
+    }
+
+
+@app.post("/adaptive-drills")
+async def generate_adaptive_drills(request: AdaptiveDrillsRequest):
+    drill_count = min(max(request.count, 1), 6)
+
+    if not supabase:
+        fallback = _fallback_adaptive_drills([], drill_count)
+        return {
+            **fallback,
+            "source": "fallback_no_supabase",
+            "error_count": 0,
+        }
+
+    try:
+        errors_response = (
+            supabase
+            .table("user_errors")
+            .select("drill_prompt, user_input, expected_answer, created_at")
+            .eq("user_id", request.user_id)
+            .order("created_at", desc=True)
+            .limit(15)
+            .execute()
+        )
+        recent_errors = errors_response.data if errors_response.data else []
+    except Exception as exc:
+        print(f"Failed to fetch user errors for adaptive drills: {exc}")
+        recent_errors = []
+
+    if not client:
+        fallback = _fallback_adaptive_drills(recent_errors, drill_count)
+        return {
+            **fallback,
+            "source": "fallback_no_llm",
+            "error_count": len(recent_errors),
+        }
+
+    if not recent_errors:
+        fallback = _fallback_adaptive_drills(recent_errors, drill_count)
+        return {
+            **fallback,
+            "source": "fallback_no_errors",
+            "error_count": 0,
+        }
+
+    condensed_errors = []
+    for row in recent_errors:
+        drill_prompt = str(row.get("drill_prompt") or "").strip()
+        user_input = str(row.get("user_input") or "").strip()
+        expected = str(row.get("expected_answer") or "").strip()
+        if drill_prompt or expected:
+            condensed_errors.append({
+                "prompt": drill_prompt,
+                "wrong": user_input,
+                "expected": expected,
+            })
+
+    adaptive_prompt = (
+        "You are an Arabic tutoring assistant building targeted practice drills. "
+        "Use the user's recent mistakes to generate drills that focus on weak words and structures.\n\n"
+        f"Drill set tag: {request.drill_set or 'adaptive'}\n"
+        f"Mistakes (latest first): {json.dumps(condensed_errors[:15], ensure_ascii=False)}\n\n"
+        f"Generate exactly {drill_count} drills.\n"
+        "Return STRICT JSON only with this shape:\n"
+        "{\"title\":\"...\",\"intro\":\"...\",\"drills\":[{\"prompt\":\"...\",\"answer\":\"...\"}]}\n"
+        "Rules: short prompts, clear expected answer, no markdown, no code fences, no extra keys."
+    )
+
+    try:
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You output strict JSON only."},
+                {"role": "user", "content": adaptive_prompt},
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0.3,
+        )
+
+        content = completion.choices[0].message.content or ""
+        parsed = json.loads(_strip_json_code_fences(content))
+
+        drills_raw = parsed.get("drills") if isinstance(parsed, dict) else None
+        title = str(parsed.get("title") or "Adaptive Practice Drills") if isinstance(parsed, dict) else "Adaptive Practice Drills"
+        intro = str(parsed.get("intro") or "These drills focus on your recent weak points.") if isinstance(parsed, dict) else "These drills focus on your recent weak points."
+
+        drills: list[dict[str, str]] = []
+        if isinstance(drills_raw, list):
+            for item in drills_raw:
+                if not isinstance(item, dict):
+                    continue
+                prompt = str(item.get("prompt") or "").strip()
+                answer = str(item.get("answer") or "").strip()
+                if prompt and answer:
+                    drills.append({"prompt": prompt, "answer": answer})
+                if len(drills) >= drill_count:
+                    break
+
+        if not drills:
+            raise ValueError("No valid drills produced by model")
+
+        return {
+            "title": title,
+            "intro": intro,
+            "drills": drills,
+            "source": "llm",
+            "error_count": len(recent_errors),
+        }
+    except Exception as exc:
+        print(f"Adaptive drill generation failed, using fallback: {exc}")
+        fallback = _fallback_adaptive_drills(recent_errors, drill_count)
+        return {
+            **fallback,
+            "source": "fallback_parse_or_generation",
+            "error_count": len(recent_errors),
+        }
 
 # Transcribe uploaded speech into text for the chat screen.
 @app.post("/transcribe")

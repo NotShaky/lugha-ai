@@ -131,3 +131,20 @@ export async function markPackCompleted(packId: string): Promise<void> {
     console.warn('Failed to save completed packs:', error.message);
   }
 }
+
+export async function logDrillError(prompt: string, userInput: string, expectedAnswer: string) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return;
+
+  // Insert the wrong answer into the database
+  const { error } = await supabase.from('user_errors').insert({
+    user_id: session.user.id,
+    drill_prompt: prompt,
+    user_input: userInput,
+    expected_answer: expectedAnswer
+  });
+
+  if (error) {
+    console.error("Failed to log error:", error);
+  }
+}

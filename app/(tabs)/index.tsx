@@ -1,6 +1,8 @@
+import { getCompletedPacks } from '@/utils/progress';
+import { supabase } from '@/utils/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -26,10 +28,20 @@ const scenarioCards = [
     icon: 'school-outline',
     color: '#CA6702',
   },
+  {
+    id: 'adaptive',
+    title: 'Adaptive Mastery Pack',
+    subtitle: 'Fully personalized drills from your completed packs and mistakes',
+    icon: 'sparkles-outline',
+    color: '#7C3AED',
+  },
 ];
+
+const CORE_PACK_IDS = ['general', 'airport', 'classroom'];
 
 export default function HomeScreen() {
   const router = useRouter();
+  const [completedPacks, setCompletedPacks] = useState<string[]>([]);
 
   const handleOpenChat = () => {
     router.push({
@@ -44,6 +56,37 @@ export default function HomeScreen() {
       params: { id: 'drills', title, drillSet },
     });
   };
+
+  useEffect(() => {
+    let mounted = true;
+
+    const refreshCompletedPacks = async () => {
+      const packs = await getCompletedPacks();
+      if (mounted) setCompletedPacks(packs);
+    };
+
+    void refreshCompletedPacks();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      void refreshCompletedPacks();
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  const isAdaptiveUnlocked = useMemo(() => {
+    return CORE_PACK_IDS.every((packId) => completedPacks.includes(packId));
+  }, [completedPacks]);
+
+  const adaptiveUnlockProgress = useMemo(() => {
+    const completedCoreCount = CORE_PACK_IDS.filter((packId) => completedPacks.includes(packId)).length;
+    return `${completedCoreCount}/${CORE_PACK_IDS.length} core packs completed`;
+  }, [completedPacks]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -70,8 +113,9 @@ export default function HomeScreen() {
         {scenarioCards.map((scenario) => (
           <TouchableOpacity
             key={scenario.id}
-            style={styles.scenarioCard}
+            style={[styles.scenarioCard, scenario.id === 'adaptive' && !isAdaptiveUnlocked && styles.scenarioCardLocked]}
             activeOpacity={0.85}
+            disabled={scenario.id === 'adaptive' && !isAdaptiveUnlocked}
             onPress={() => handleOpenDrillScenario(scenario.id, scenario.title)}
           >
             <View style={[styles.scenarioIconWrap, { backgroundColor: `${scenario.color}1A` }]}> 
@@ -79,9 +123,20 @@ export default function HomeScreen() {
             </View>
             <View style={styles.scenarioTextWrap}>
               <Text style={styles.scenarioTitle}>{scenario.title}</Text>
-              <Text style={styles.scenarioSubtitle}>{scenario.subtitle}</Text>
+              <Text style={styles.scenarioSubtitle}>
+                {scenario.id === 'adaptive' && !isAdaptiveUnlocked
+                  ? 'Locked: complete General, Airport, and Classroom packs to unlock'
+                  : scenario.subtitle}
+              </Text>
+              {scenario.id === 'adaptive' && (
+                <Text style={styles.scenarioProgressText}>{adaptiveUnlockProgress}</Text>
+              )}
             </View>
-            <Ionicons name="chevron-forward" size={20} color="#8E8E93" />
+            {scenario.id === 'adaptive' && !isAdaptiveUnlocked ? (
+              <Ionicons name="lock-closed" size={18} color="#8E8E93" />
+            ) : (
+              <Ionicons name="chevron-forward" size={20} color="#8E8E93" />
+            )}
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -174,6 +229,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ECEEF2',
   },
+  scenarioCardLocked: {
+    opacity: 0.6,
+  },
   scenarioIconWrap: {
     width: 44,
     height: 44,
@@ -194,5 +252,11 @@ const styles = StyleSheet.create({
   scenarioSubtitle: {
     fontSize: 13,
     color: '#666',
+  },
+  scenarioProgressText: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#5A5A5A',
   },
 });

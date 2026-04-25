@@ -8,7 +8,7 @@ import {
 } from 'expo-audio';
 import Constants from 'expo-constants';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -23,7 +23,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { addProgress, markPackCompleted } from '../../utils/progress';
+import { addProgress, logDrillError, markPackCompleted } from '../../utils/progress';
 import { supabase } from '../../utils/supabase';
 
 // --- Backend Configuration ---
@@ -88,9 +88,14 @@ interface DrillSet {
   drills: DrillItem[];
 }
 
+interface AdaptiveDrillsResponse {
+  title?: string;
+  intro?: string;
+  drills?: DrillItem[];
+}
+
 const hasArabicChars = (value: string) => /[\u0600-\u06FF]/.test(value);
 
-// --- Drill Data ---
 const DRILL_SETS: Record<string, DrillSet> = {
   general: {
     title: 'General Chat Drills',
@@ -146,7 +151,28 @@ const DRILL_SETS: Record<string, DrillSet> = {
       },
     ],
   },
+  adaptive: {
+    title: 'Adaptive Mastery Pack',
+    intro: 'A fully personalized drill pack generated from your recent mistakes.',
+    drills: [],
+  },
 };
+
+const ADAPTIVE_BONUS_INTRO = 'Final challenge is adaptive and based on your recent mistakes.';
+const FALLBACK_ADAPTIVE_DRILLS: DrillItem[] = [
+  {
+    prompt: 'Translate to Arabic: "Where is the house?"',
+    answer: 'أَيْنَ الْبَيْتُ؟',
+  },
+  {
+    prompt: 'Build in Arabic: "I have a notebook."',
+    answer: 'عِنْدِي دَفْتَرٌ',
+  },
+  {
+    prompt: 'Translate to English: هٰذِهِ مَدْرَسَةٌ',
+    answer: 'This is a school.',
+  },
+];
 
 function parseAiReply(reply: string, baseId: string): Message[] {
   const msgs: Message[] = [];
@@ -183,14 +209,20 @@ export default function ChatScreen() {
   const router = useRouter();
   const { title, id, drillSet } = useLocalSearchParams();
   const isDrillMode = id === 'drills';
-  const activeDrillSetKey = isDrillMode && typeof drillSet === 'string' && DRILL_SETS[drillSet]
-    ? drillSet
-    : 'general';
-  const activeDrillSet = isDrillMode && typeof drillSet === 'string' && DRILL_SETS[drillSet]
-    ? DRILL_SETS[drillSet]
-    : DRILL_SETS.general;
-  const activeDrills = activeDrillSet.drills;
+  const selectedSetKey = typeof drillSet === 'string' && DRILL_SETS[drillSet] ? drillSet : 'general';
+  const isAdaptiveMasteryPack = selectedSetKey === 'adaptive';
+  const baseDrillSet = DRILL_SETS[selectedSetKey];
+  const activeDrillSetKey = isDrillMode ? selectedSetKey : 'general';
   
+  const [adaptiveDrillTitle, setAdaptiveDrillTitle] = useState(baseDrillSet.title);
+  const [adaptiveDrillIntro, setAdaptiveDrillIntro] = useState(
+    isAdaptiveMasteryPack ? baseDrillSet.intro : `${baseDrillSet.intro}\n\n${ADAPTIVE_BONUS_INTRO}`,
+  );
+  const [adaptiveDrills, setAdaptiveDrills] = useState<DrillItem[]>(() =>
+    isAdaptiveMasteryPack ? [] : baseDrillSet.drills,
+  );
+  const [adaptiveBonusIndex, setAdaptiveBonusIndex] = useState<number | null>(null);
+  const [isLoadingDrills, setIsLoadingDrills] = useState(false);
   const [currentDrillIndex, setCurrentDrillIndex] = useState(0);
   const [drillWrongAttempts, setDrillWrongAttempts] = useState<Record<number, number>>({});
   const [hasSwitchedToNormalChat, setHasSwitchedToNormalChat] = useState(false);
@@ -199,7 +231,9 @@ export default function ChatScreen() {
       return [
         {
           id: 'welcome',
-          text: `Ready for ${activeDrillSet.title}?\n\n${activeDrillSet.intro}\n\nFirst challenge:\n\n${activeDrills[0].prompt}`,
+          text: isAdaptiveMasteryPack
+            ? `Preparing ${baseDrillSet.title}...\n\nGenerating a fully personalized drill pack from your recent mistakes.`
+            : `Preparing ${baseDrillSet.title}...\n\nLoading core set drills and your adaptive bonus challenge.`,
           sender: 'ai',
           timestamp: new Date(),
         },
@@ -221,6 +255,14 @@ export default function ChatScreen() {
   const [showTranslations, setShowTranslations] = useState(true);
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const activeDrills = adaptiveDrills;
+  const getDisplayPrompt = (drills: DrillItem[], index: number): string => {
+    const rawPrompt = drills[index]?.prompt ?? '';
+    if (!isAdaptiveMasteryPack && adaptiveBonusIndex === index) {
+      return `Adaptive Bonus Challenge:\n\n${rawPrompt}`;
+    }
+    return rawPrompt;
+  };
 
   // --- Refs ---
   const speakingIdRef = useRef<string | null>(null); 
@@ -228,6 +270,185 @@ export default function ChatScreen() {
   const currentWebPlayerRef = useRef<HTMLAudioElement | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+
+  const loadAdaptiveDrills = useCallback(async () => {
+    if (!isDrillMode) return;
+
+    setIsLoadingDrills(true);
+
+    try {
+      const baseDrills = isAdaptiveMasteryPack ? [] : baseDrillSet.drills;
+      const composeIntro = isAdaptiveMasteryPack
+        ? baseDrillSet.intro
+        : `${baseDrillSet.intro}\n\n${ADAPTIVE_BONUS_INTRO}`;
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
+
+      if (!userId) {
+        if (isAdaptiveMasteryPack) {
+          setAdaptiveDrillTitle(baseDrillSet.title);
+          setAdaptiveDrillIntro(baseDrillSet.intro);
+          setAdaptiveDrills([]);
+          setAdaptiveBonusIndex(null);
+          setCurrentDrillIndex(0);
+          setDrillWrongAttempts({});
+          setHasSwitchedToNormalChat(false);
+
+          setMessages([
+            {
+              id: 'welcome',
+              text: 'Sign in to start the Adaptive Mastery Pack. This pack is fully personalized from your learning history.',
+              sender: 'ai',
+              timestamp: new Date(),
+            },
+          ]);
+          return;
+        }
+
+        setAdaptiveDrillTitle(baseDrillSet.title);
+        setAdaptiveDrillIntro(composeIntro);
+        setAdaptiveDrills(baseDrills);
+        setAdaptiveBonusIndex(null);
+        setCurrentDrillIndex(0);
+        setDrillWrongAttempts({});
+        setHasSwitchedToNormalChat(false);
+
+        setMessages([
+          {
+            id: 'welcome',
+            text: `Ready for ${baseDrillSet.title}?\n\n${baseDrillSet.intro}\n\nAdaptive bonus challenge is unavailable until you sign in.\n\nFirst challenge:\n\n${baseDrills[0].prompt}`,
+            sender: 'ai',
+            timestamp: new Date(),
+          },
+        ]);
+        return;
+      }
+
+      const response = await fetchWithTimeout(`${BACKEND_URL}/adaptive-drills`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: userId,
+          drill_set: selectedSetKey,
+          count: isAdaptiveMasteryPack ? 3 : 1,
+        }),
+      }, 20000);
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Status ${response.status}: ${errorBody}`);
+      }
+
+      const data: AdaptiveDrillsResponse = await response.json();
+      const drills = Array.isArray(data.drills)
+        ? data.drills.filter((item) => item?.prompt?.trim() && item?.answer?.trim())
+        : [];
+
+      if (isAdaptiveMasteryPack) {
+        const masteryDrills = drills.length > 0
+          ? drills.slice(0, 3)
+          : FALLBACK_ADAPTIVE_DRILLS;
+
+        setAdaptiveDrillTitle(baseDrillSet.title);
+        setAdaptiveDrillIntro(baseDrillSet.intro);
+        setAdaptiveDrills(masteryDrills);
+        setAdaptiveBonusIndex(null);
+        setCurrentDrillIndex(0);
+        setDrillWrongAttempts({});
+        setHasSwitchedToNormalChat(false);
+
+        setMessages([
+          {
+            id: 'welcome',
+            text: `Ready for ${baseDrillSet.title}?\n\n${baseDrillSet.intro}\n\nFirst challenge:\n\n${masteryDrills[0].prompt}`,
+            sender: 'ai',
+            timestamp: new Date(),
+          },
+        ]);
+        return;
+      }
+
+      const adaptiveCandidate = drills[0] ?? FALLBACK_ADAPTIVE_DRILLS[0];
+      const isDuplicate = baseDrills.some((item) => {
+        return item.prompt.trim().toLowerCase() === adaptiveCandidate.prompt.trim().toLowerCase()
+          && item.answer.trim().toLowerCase() === adaptiveCandidate.answer.trim().toLowerCase();
+      });
+      const combinedDrills = isDuplicate ? baseDrills : [...baseDrills, adaptiveCandidate];
+      const resolvedAdaptiveBonusIndex = isDuplicate ? null : baseDrills.length;
+      const resolvedIntro = `${baseDrillSet.intro}\n\n${ADAPTIVE_BONUS_INTRO}`;
+
+      setAdaptiveDrillTitle(baseDrillSet.title);
+      setAdaptiveDrillIntro(resolvedIntro);
+      setAdaptiveDrills(combinedDrills);
+      setAdaptiveBonusIndex(resolvedAdaptiveBonusIndex);
+      setCurrentDrillIndex(0);
+      setDrillWrongAttempts({});
+      setHasSwitchedToNormalChat(false);
+
+      setMessages([
+        {
+          id: 'welcome',
+          text: `Ready for ${baseDrillSet.title}?\n\n${resolvedIntro}\n\nFirst challenge:\n\n${resolvedAdaptiveBonusIndex === 0 ? `Adaptive Bonus Challenge:\n\n${combinedDrills[0].prompt}` : combinedDrills[0].prompt}`,
+          sender: 'ai',
+          timestamp: new Date(),
+        },
+      ]);
+    } catch (error) {
+      console.error('Failed to load adaptive drills:', error);
+
+      if (isAdaptiveMasteryPack) {
+        const masteryFallbackDrills = FALLBACK_ADAPTIVE_DRILLS;
+
+        setAdaptiveDrillTitle(baseDrillSet.title);
+        setAdaptiveDrillIntro(baseDrillSet.intro);
+        setAdaptiveDrills(masteryFallbackDrills);
+        setAdaptiveBonusIndex(null);
+        setCurrentDrillIndex(0);
+        setDrillWrongAttempts({});
+        setHasSwitchedToNormalChat(false);
+
+        setMessages([
+          {
+            id: 'welcome',
+            text: `Ready for ${baseDrillSet.title}?\n\n${baseDrillSet.intro}\n\nFirst challenge:\n\n${masteryFallbackDrills[0].prompt}`,
+            sender: 'ai',
+            timestamp: new Date(),
+          },
+        ]);
+        return;
+      }
+
+      const baseDrills = baseDrillSet.drills;
+      const fallbackAdaptive = FALLBACK_ADAPTIVE_DRILLS.find((item) => {
+        return !baseDrills.some((base) => {
+          return base.prompt.trim().toLowerCase() === item.prompt.trim().toLowerCase()
+            && base.answer.trim().toLowerCase() === item.answer.trim().toLowerCase();
+        });
+      });
+      const combinedDrills = fallbackAdaptive ? [...baseDrills, fallbackAdaptive] : baseDrills;
+      const resolvedAdaptiveBonusIndex = fallbackAdaptive ? baseDrills.length : null;
+      const resolvedIntro = `${baseDrillSet.intro}\n\n${ADAPTIVE_BONUS_INTRO}`;
+
+      setAdaptiveDrillTitle(baseDrillSet.title);
+      setAdaptiveDrillIntro(resolvedIntro);
+      setAdaptiveDrills(combinedDrills);
+      setAdaptiveBonusIndex(resolvedAdaptiveBonusIndex);
+      setCurrentDrillIndex(0);
+      setDrillWrongAttempts({});
+      setHasSwitchedToNormalChat(false);
+
+      setMessages([
+        {
+          id: 'welcome',
+          text: `Ready for ${baseDrillSet.title}?\n\n${resolvedIntro}\n\nFirst challenge:\n\n${resolvedAdaptiveBonusIndex === 0 ? `Adaptive Bonus Challenge:\n\n${combinedDrills[0].prompt}` : combinedDrills[0].prompt}`,
+          sender: 'ai',
+          timestamp: new Date(),
+        },
+      ]);
+    } finally {
+      setIsLoadingDrills(false);
+    }
+  }, [baseDrillSet, isAdaptiveMasteryPack, isDrillMode, selectedSetKey]);
 
   // --- Audio Helpers ---
   const stopPlayingAudio = () => {
@@ -267,6 +488,10 @@ export default function ChatScreen() {
       }
     }
   }, [messages]);
+
+  useEffect(() => {
+    void loadAdaptiveDrills();
+  }, [loadAdaptiveDrills]);
 
   // --- Text Helpers ---
   const getArabicText = (text: string): string => {
@@ -408,6 +633,18 @@ export default function ChatScreen() {
     setIsProcessing(true);
 
     try {
+      if (isDrillMode && isLoadingDrills) {
+        const waitMsg: Message = {
+          id: Date.now().toString() + '_ai_wait',
+          text: 'Still preparing your adaptive drills. Please wait a moment.',
+          sender: 'ai',
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, waitMsg]);
+        setIsProcessing(false);
+        return;
+      }
+
       const drillIsActive = isDrillMode && currentDrillIndex < activeDrills.length;
 
       if (drillIsActive) {
@@ -509,7 +746,7 @@ export default function ChatScreen() {
         if (!currentDrill) {
           const doneMsg: Message = {
             id: Date.now().toString() + '_ai_done',
-            text: `You've already completed ${activeDrillSet.title}. Nice work!`,
+            text: `You've already completed ${adaptiveDrillTitle}. Nice work!`,
             sender: 'ai',
             timestamp: new Date(),
           };
@@ -519,6 +756,12 @@ export default function ChatScreen() {
         }
 
         const normalizedInput = text.trim().toLowerCase();
+        if (normalizedInput === 'reload drills') {
+          await loadAdaptiveDrills();
+          setIsProcessing(false);
+          return;
+        }
+
         if (normalizedInput === 'next' || normalizedInput === 'skip') {
           const nextIndex = currentDrillIndex + 1;
           setDrillWrongAttempts((prev) => {
@@ -530,7 +773,7 @@ export default function ChatScreen() {
             setCurrentDrillIndex(nextIndex);
             const skipMsg: Message = {
               id: Date.now().toString() + '_ai_skip',
-              text: `Skipping this one. Next challenge:\n\n${activeDrills[nextIndex].prompt}`,
+              text: `Skipping this one. Next challenge:\n\n${getDisplayPrompt(activeDrills, nextIndex)}`,
               sender: 'ai',
               timestamp: new Date(),
             };
@@ -540,7 +783,7 @@ export default function ChatScreen() {
             void markPackCompleted(activeDrillSetKey);
             const completeMsg: Message = {
               id: Date.now().toString() + '_ai_complete',
-              text: `All done. You completed ${activeDrillSet.title}!`,
+              text: `All done. You completed ${adaptiveDrillTitle}!`,
               sender: 'ai',
               timestamp: new Date(),
             };
@@ -606,7 +849,7 @@ export default function ChatScreen() {
 
           if (nextIndex < activeDrills.length) {
             setCurrentDrillIndex(nextIndex);
-            const feedback = `✓ Correct! Well done!${toleranceNote}\n\nNext drill:` + `\n\n${activeDrills[nextIndex].prompt}`;
+            const feedback = `✓ Correct! Well done!${toleranceNote}\n\nNext drill:` + `\n\n${getDisplayPrompt(activeDrills, nextIndex)}`;
             const aiMsg: Message = { 
               id: Date.now().toString() + '_ai', 
               text: feedback, 
@@ -617,7 +860,7 @@ export default function ChatScreen() {
           } else {
             setCurrentDrillIndex(activeDrills.length);
             void markPackCompleted(activeDrillSetKey);
-            const feedback = `✓ Correct! Excellent work!${toleranceNote}\n\n🎉 You've completed ${activeDrillSet.title}!\n\nGreat job practicing Arabic!`;
+            const feedback = `✓ Correct! Excellent work!${toleranceNote}\n\n🎉 You've completed ${adaptiveDrillTitle}!\n\nGreat job practicing Arabic!`;
             const aiMsg: Message = { 
               id: Date.now().toString() + '_ai', 
               text: feedback, 
@@ -627,6 +870,8 @@ export default function ChatScreen() {
             setMessages(prev => [...prev, aiMsg]);
           }
         } else {
+          void logDrillError(currentDrill.prompt, text, currentDrill.answer);
+
           const nextAttempt = (drillWrongAttempts[currentDrillIndex] ?? 0) + 1;
           setDrillWrongAttempts((prev) => ({ ...prev, [currentDrillIndex]: nextAttempt }));
 
