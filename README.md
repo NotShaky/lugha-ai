@@ -1,4 +1,4 @@
-# Lugha AI
+# Lugha AI.
 
 Lugha AI is an Arabic language learning app powered by AI. It combines chat practice, voice input, pronunciation playback, and guided learning content in one Expo app.
 
