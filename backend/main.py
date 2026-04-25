@@ -39,6 +39,8 @@ class ChatRequest(BaseModel):
     session_id: str
     user_id: str  
     persona: Optional[str] = "General Learner"
+    scenario: Optional[str] = None
+    history: Optional[List[dict]] = None
 
 class TTSRequest(BaseModel):
     text: str
@@ -250,6 +252,39 @@ async def generate_adaptive_drills(request: AdaptiveDrillsRequest):
             "error_count": len(recent_errors),
         }
 
+# Common Whisper hallucination phrases that appear when the model
+# processes silence, background noise, or very short audio clips.
+WHISPER_HALLUCINATION_PATTERNS = [
+    r"(?i)thank\s*you\s*(for\s*watching|for\s*listening)?",
+    r"(?i)please\s*subscribe",
+    r"(?i)like\s*and\s*subscribe",
+    r"(?i)see\s*you\s*(in\s*the\s*)?next\s*(video|episode)",
+    r"(?i)bye[\s\-]*bye",
+    r"(?i)^\.+$",
+    r"(?i)^music$",
+    r"(?i)^\[.*\]$",
+    r"(?i)^thank\s*you\.?$",
+    r"أعوذ بالله من الشيطان الرجيم",
+    r"بسم الله الرحمن الرحيم",
+    r"السلام عليكم ورحمة الله وبركاته",
+    r"جزاكم الله خيرا",
+    r"صلى الله عليه وسلم",
+]
+
+_hallucination_regexes = [re.compile(p) for p in WHISPER_HALLUCINATION_PATTERNS]
+
+
+def _is_likely_hallucination(text: str) -> bool:
+    """Return True if the transcription looks like a Whisper hallucination."""
+    stripped = text.strip()
+    if not stripped:
+        return True
+    for regex in _hallucination_regexes:
+        if regex.fullmatch(stripped):
+            return True
+    return False
+
+
 # Transcribe uploaded speech into text for the chat screen.
 @app.post("/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
@@ -258,8 +293,14 @@ async def transcribe_audio(file: UploadFile = File(...)):
     try:
         with open(temp_filename, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
-            
-        print(f"Received file: {temp_filename}")
+
+        # Reject very small files (likely silence or accidental taps).
+        file_size = os.path.getsize(temp_filename)
+        print(f"Received file: {temp_filename} ({file_size} bytes)")
+
+        if file_size < 5000:
+            print("Audio file too small, likely silence — skipping transcription.")
+            return {"text": ""}
 
         if client:
             try:
@@ -267,11 +308,17 @@ async def transcribe_audio(file: UploadFile = File(...)):
                 transcript = client.audio.transcriptions.create(
                     model="whisper-large-v3", 
                     file=audio_file,
-                    prompt="The user is speaking either English or Arabic (العربية). Please transcribe exactly what they are saying."
+                    temperature=0,
+                    prompt="أهلا وسهلا، كيف حالك؟ أين المطعم؟ أريد قهوة من فضلك.",
                 )
-                print(f"Transcription: {transcript.text}")
+                result_text = (transcript.text or "").strip()
+                print(f"Transcription: {result_text}")
 
-                return {"text": transcript.text}
+                if _is_likely_hallucination(result_text):
+                    print(f"Filtered hallucination: \"{result_text}\"")
+                    return {"text": ""}
+
+                return {"text": result_text}
 
             except Exception as e:
                 print(f"Groq Error: {e}")
@@ -311,10 +358,21 @@ async def chat_with_ai(request: ChatRequest):
             chat_history = history_response.data if history_response.data else []
         except Exception as e:
             print(f"Supabase history fetch failed; continuing without history: {e}")
+
+    # If Supabase returned nothing (e.g. first message timing gap), use the
+    # frontend-supplied history as a fallback so the AI always has context.
+    if not chat_history and request.history:
+        chat_history = [
+            {"role": msg.get("role", "user"), "content": msg.get("content", "")}
+            for msg in request.history
+            if msg.get("content")
+        ]
+        print(f"Using frontend history fallback ({len(chat_history)} messages)")
     
     # Candor Note: LLMs have "token limits". If a conversation has 10,000 messages, it will crash. 
     # grab the last 40 messages to give it great long-term memory without breaking the AI.
     recent_history = chat_history[-40:]
+    print(f"History loaded: {len(recent_history)} messages for session {request.session_id}")
 
     dynamic_prompt = SYSTEM_PROMPT + f"\n\nThe user's learning profile is: {request.persona or 'General Learner'}."
 
@@ -326,6 +384,9 @@ async def chat_with_ai(request: ChatRequest):
         dynamic_prompt += " Focus on practical, conversational 'survival' Arabic. Emphasize dialects and common slang used in daily business or travel."
     elif request.persona == "Heritage Learner":
         dynamic_prompt += " The user likely has good listening skills but struggles with literacy. Help bridge the gap between spoken dialects and written MSA."
+
+    if request.scenario:
+        dynamic_prompt += f" IMPORTANT: We are roleplaying a specific scenario: '{request.scenario}'. Stay in character as the other person in this scenario. Continue the conversation naturally based on what has already been said. Do NOT re-introduce yourself or restart the scenario if you have already greeted the user."
 
     # 2. Start with the tailored System Prompt
     api_messages = [{"role": "system", "content": dynamic_prompt}]

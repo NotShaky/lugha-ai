@@ -207,7 +207,7 @@ function parseAiReply(reply: string, baseId: string): Message[] {
 
 export default function ChatScreen() {
   const router = useRouter();
-  const { title, id, drillSet } = useLocalSearchParams();
+  const { title, id, drillSet, scenario } = useLocalSearchParams();
   const isDrillMode = id === 'drills';
   const selectedSetKey = typeof drillSet === 'string' && DRILL_SETS[drillSet] ? drillSet : 'general';
   const isAdaptiveMasteryPack = selectedSetKey === 'adaptive';
@@ -239,10 +239,17 @@ export default function ChatScreen() {
         },
       ];
     }
+    let welcomeText = ' أهلا وسهلا\n\nWelcome to Lugha AI Chat! Practice Arabic conversation with me.';
+    if (typeof scenario === 'string' && scenario) {
+       welcomeText += `\n\nWe are roleplaying: ${typeof title === 'string' ? title : scenario}. Go ahead and start the conversation!`;
+    } else {
+       welcomeText += "\n\nYou can type in English or Arabic, or use the microphone to speak. Let's get started!";
+    }
+
     return [
       {
         id: 'welcome',
-        text: ' أهلا وسهلا' + '\n\n' + "Welcome to Lugha AI Chat! Practice Arabic conversation with me. You can type in English or Arabic, or use the microphone to speak. Let's get started!",
+        text: welcomeText,
         sender: 'ai',
         timestamp: new Date(),
       },
@@ -453,6 +460,11 @@ export default function ChatScreen() {
   // --- Audio Helpers ---
   const stopPlayingAudio = () => {
     if (currentPlayerRef.current) {
+      try {
+        currentPlayerRef.current.pause();
+      } catch (e) {
+        // player may already be in an invalid state
+      }
       currentPlayerRef.current.remove();
       currentPlayerRef.current = null;
     }
@@ -492,6 +504,13 @@ export default function ChatScreen() {
   useEffect(() => {
     void loadAdaptiveDrills();
   }, [loadAdaptiveDrills]);
+
+  // Stop all audio when the user leaves the chat screen.
+  useEffect(() => {
+    return () => {
+      stopPlayingAudio();
+    };
+  }, []);
 
   // --- Text Helpers ---
   const getArabicText = (text: string): string => {
@@ -949,6 +968,8 @@ export default function ChatScreen() {
           session_id: id,
           user_id: userId, 
           persona: userPersona,
+          scenario: typeof scenario === 'string' && scenario ? scenario : undefined,
+          history: chatHistory,
         }),
       }, 15000);
       
@@ -1021,8 +1042,10 @@ export default function ChatScreen() {
             });
             const data = await res.json();
 
-            if (data.text) {
+            if (data.text && data.text.trim()) {
               await sendMessage(data.text);
+            } else {
+              setIsProcessing(false);
             }
           } catch (error) {
             console.error('Web audio processing failed', error);
@@ -1087,6 +1110,7 @@ export default function ChatScreen() {
       if (!uri) {
         console.error('No recording URI available');
         Alert.alert('Error', 'Recording failed — no audio file was created.');
+        setIsProcessing(false);
         return;
       }
 
@@ -1101,8 +1125,11 @@ export default function ChatScreen() {
       
       const data = await response.json();
       
-      if (data.text) {
+      if (data.text && data.text.trim()) {
         await sendMessage(data.text);
+      } else {
+        console.log('Empty transcription — mic may have picked up silence.');
+        setIsProcessing(false);
       }
 
     } catch (error) {

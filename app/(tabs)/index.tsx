@@ -6,6 +6,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+const roleplayScenarios = [
+  { id: 'market', title: 'At the Market', icon: 'cart-outline', color: '#34C759', scenario: 'Ordering groceries or haggling at an Arab market' },
+  { id: 'restaurant', title: 'At the Restaurant', icon: 'restaurant-outline', color: '#FF3B30', scenario: 'Ordering food and drinks at a restaurant' },
+  { id: 'airport', title: 'At the Airport', icon: 'airplane-outline', color: '#AF52DE', scenario: 'Checking in at the airport or going through customs' },
+];
+
 const scenarioCards = [
   {
     id: 'general',
@@ -46,7 +52,14 @@ export default function HomeScreen() {
   const handleOpenChat = () => {
     router.push({
       pathname: '/chat/[id]',
-      params: { id: 'chat-bot', title: 'Lugha AI Chat' },
+      params: { id: `chat-${Date.now()}`, title: 'Lugha AI Chat' },
+    });
+  };
+
+  const handleOpenRoleplay = (scenarioParam: string, title: string) => {
+    router.push({
+      pathname: '/chat/[id]',
+      params: { id: `chat-${Date.now()}`, title, scenario: scenarioParam },
     });
   };
 
@@ -93,18 +106,33 @@ export default function HomeScreen() {
       <Text style={styles.header}>Lugha AI</Text>
 
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.chatContent}>
-          <View style={styles.chatIllustration}>
-            <Ionicons name="chatbubble-ellipses" size={80} color="#007AFF" />
+        <TouchableOpacity style={styles.chatCard} onPress={handleOpenChat} activeOpacity={0.85}>
+          <View style={styles.chatCardIcon}>
+            <Ionicons name="chatbubble-ellipses" size={36} color="#007AFF" />
           </View>
-          <Text style={styles.chatTitle}>Practice with AI</Text>
-          <Text style={styles.chatDesc}>
-            Chat with Lugha AI to practice Arabic conversation. Type in English or Arabic, or use your microphone.
-          </Text>
-          <TouchableOpacity style={styles.chatButton} onPress={handleOpenChat}>
-            <Ionicons name="chatbubbles" size={22} color="#fff" />
-            <Text style={styles.chatButtonText}>Start General Chat</Text>
-          </TouchableOpacity>
+          <View style={styles.chatCardText}>
+            <Text style={styles.chatCardTitle}>Chat with Lugha AI</Text>
+            <Text style={styles.chatCardDesc}>Practice Arabic conversation freely. Type or speak in English or Arabic.</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={22} color="#007AFF" />
+        </TouchableOpacity>
+
+        <Text style={styles.sectionTitle}>Roleplay Scenarios</Text>
+        <Text style={styles.sectionSubtitle}>Pick a real-world situation and practice in character with the AI.</Text>
+        
+        <View style={styles.roleplayGrid}>
+          {roleplayScenarios.map((rp) => (
+            <TouchableOpacity
+              key={rp.id}
+              style={styles.roleplayCard}
+              onPress={() => handleOpenRoleplay(rp.scenario, rp.title)}
+            >
+              <View style={[styles.roleplayIconWrap, { backgroundColor: rp.color + '1A' }]}>
+                <Ionicons name={rp.icon as any} size={32} color={rp.color} />
+              </View>
+              <Text style={styles.roleplayTitle}>{rp.title}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
         <Text style={styles.sectionTitle}>Scenario Drill Packs</Text>
@@ -161,52 +189,73 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     color: '#000',
   },
-  chatContent: {
+  chatCard: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    marginBottom: 20,
-  },
-  chatIllustration: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
     backgroundColor: '#EBF2FF',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1.5,
+    borderColor: '#007AFF',
+  },
+  chatCardIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 14,
+  },
+  chatCardText: {
+    flex: 1,
+  },
+  chatCardTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#007AFF',
+    marginBottom: 4,
+  },
+  chatCardDesc: {
+    fontSize: 13,
+    color: '#555',
+    lineHeight: 18,
+  },
+  roleplayGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
     marginBottom: 24,
   },
-  chatTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#000',
+  roleplayCard: {
+    width: '48%',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#F0F0F0',
+  },
+  roleplayIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 12,
   },
-  chatDesc: {
-    fontSize: 16,
-    color: '#555',
+  roleplayTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#333',
     textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 32,
-  },
-  chatButton: {
-    flexDirection: 'row',
-    backgroundColor: '#007AFF',
-    paddingHorizontal: 28,
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-    gap: 10,
-    shadowColor: '#007AFF',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  chatButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
   },
   sectionTitle: {
     fontSize: 20,
