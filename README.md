@@ -1,6 +1,6 @@
-# Lugha AI.
+# Lugha AI
 
-Lugha AI is an Arabic language learning app powered by AI. It combines chat practice, voice input, pronunciation playback, and guided learning content in one Expo app.
+**What the software does:** Lugha AI is an interactive Arabic language learning application powered by AI. It provides scenario-based roleplay, personalized adaptive drills, pronunciation feedback, and competitive leaderboards to help users master Arabic conversational skills.
 
 ## Prerequisites
 
@@ -77,16 +77,15 @@ Your phone and computer must be on the same Wi-Fi network. If needed, override t
 EXPO_PUBLIC_BACKEND_URL=http://YOUR_LOCAL_IP:8001
 ```
 
-## Main Features
+## Core Features
 
-- Email/password auth with a combined Sign In / Create Account flow
-- AI conversation practice through the Home and Chat screens
-- Voice recording with transcription through the `/transcribe` endpoint
-- Arabic and English pronunciation playback through the `/tts` endpoint
-- Structured learning content in the Learn tab
-- Corrective Arabic replies with English translation output
-- XP and streak tracking saved to Supabase profiles
-- A 7-day activity chart on the Profile tab
+- **AI Conversation Practice & Roleplay:** Engage in open-ended chats or structured scenarios (e.g. at the airport, at a restaurant) with an AI tutor.
+- **Scenario Drill Packs & Adaptive Mastery:** Complete structured drills to earn XP. Failing drills logs mistakes which are then used to dynamically generate a personalized "Adaptive Mastery Pack".
+- **Pronunciation Analysis:** Speak Arabic into the microphone and receive a 0-100 pronunciation score with visual feedback highlighting exact mispronounced letters in red.
+- **Interactive Flashcards:** Smooth 3D-flipping vocabulary cards with native TTS pronunciation playback.
+- **Leaderboard & Progress Tracking:** Compete with others for the most XP with a top 3 podium, while tracking personal streaks and activity.
+- **Voice Transcription & TTS:** Whisper-powered Arabic/English transcription and native-sounding Text-to-Speech (TTS).
+- **Auto-Corrections:** AI tutor actively corrects grammar mistakes in a collapsible UI bubble while maintaining conversation flow.
 
 ## Backend Endpoints
 
@@ -106,11 +105,20 @@ EXPO_PUBLIC_BACKEND_URL=http://YOUR_LOCAL_IP:8001
 
 - `app/` - Expo Router screens
 - `app/(tabs)/index.tsx` - Home tab and chat entry point
-- `app/(tabs)/learn.tsx` - Learn tab with lessons and drills
-- `app/(tabs)/profile.tsx` - Profile tab
-- `app/chat/[id].tsx` - Chat conversation screen
-- `utils/progress.ts` - XP, streak, and activity tracking helper
-- `utils/supabase.ts` - Supabase client configuration
-- `backend/main.py` - FastAPI backend with Groq, transcription, and TTS
-- `components/` - Reusable React Native components
-- `constants/` - Theme colors and configuration
+- `app/(tabs)/learn.tsx` - Learn tab with interactive flashcards
+- `app/(tabs)/leaderboard.tsx` - Leaderboard tab querying user ranks
+- `app/(tabs)/profile.tsx` - Profile tab with streaks and 7-day charts
+- `app/chat/[id].tsx` - Core chat UI including drill logic and pronunciation UI
+- `utils/progress.ts` - XP, streak, and error-logging logic
+- `backend/main.py` - FastAPI backend powering LLM endpoints and TTS
+
+## Test Credentials
+
+The app uses Supabase for authentication. You can sign up with any test email and password on the login screen.
+- **Sample login:** `test@example.com` / `password123` (Note: if the account does not exist, the app's auth flow will automatically create it or prompt you to sign up).
+
+## Known Limitations
+
+- **Simulated Pronunciation Analysis:** True waveform-based phonetic grading is highly complex and requires specialized ML models (like speech-assessment models). To achieve a robust experience, Lugha AI simulates this by transcribing your speech via Whisper and then using an LLM to perform letter-by-letter phonetic comparison against the expected text. While effective for learning, it relies on the accuracy of the underlying transcription.
+- **Cloud Latency:** Because STT, TTS, and LLM completions are processed through external APIs (Groq and Edge TTS), poor network connections can lead to slower response times.
+- **Supabase Realtime Sync:** Local UI state is used optimistically for chat history to prevent race conditions while Supabase syncs in the background.

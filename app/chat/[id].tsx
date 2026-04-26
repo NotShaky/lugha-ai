@@ -99,6 +99,7 @@ interface Message {
   type?: 'correction' | 'reply' | 'pronunciation';
   timestamp: Date;
   pronunciationData?: PronunciationFeedback;
+  wasAudio?: boolean;
 }
 
 interface DrillItem {
@@ -519,7 +520,7 @@ export default function ChatScreen() {
 
     if (autoSpeak && messages.length > 0) {
       const lastMsg = messages[messages.length - 1];
-      if (lastMsg.sender === 'ai' && lastMsg.type !== 'correction') {
+      if (lastMsg.sender === 'ai' && lastMsg.type !== 'correction' && lastMsg.type !== 'pronunciation') {
         speakArabic(lastMsg.text, lastMsg.id);
       }
     }
@@ -666,10 +667,57 @@ export default function ChatScreen() {
   };
 
   // --- Message Handling ---
-  const sendMessage = async (text: string) => {
+
+  const analyzeFreeformPronunciation = async (messageId: string, text: string) => {
+    setIsProcessing(true);
+    try {
+      const response = await fetchWithTimeout(`${BACKEND_URL}/freeform-pronunciation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_text: text }),
+      }, 15000);
+      
+      const pronData: PronunciationFeedback = await response.json();
+      
+      if (pronData && pronData.score >= 0) {
+        if (pronData.score === 100 && pronData.mistakes?.length === 0) {
+          pronData.feedback = "Perfect pronunciation!";
+        }
+        
+        const pronMsg: Message = {
+          id: Date.now().toString() + '_pron',
+          text: `🎯 Pronunciation Score: ${pronData.score}/100\n${pronData.feedback}`,
+          sender: 'ai',
+          type: 'pronunciation',
+          timestamp: new Date(),
+          pronunciationData: pronData,
+        };
+        
+        setMessages(prev => {
+          const next = prev.map(m => m.id === messageId ? { ...m, pronunciationData: pronData } : m);
+          return [...next, pronMsg];
+        });
+      } else {
+        Alert.alert("Analysis Failed", "Could not analyze pronunciation.");
+      }
+    } catch (err) {
+      console.warn('Freeform pronunciation check failed:', err);
+      Alert.alert("Analysis Error", "Check your connection and try again.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const sendMessage = async (text: string, wasAudio?: boolean) => {
     if (!text.trim()) return;
     
-    const userMsg: Message = { id: Date.now().toString(), text, sender: 'user', timestamp: new Date() };
+    const userMsg: Message = { 
+      id: Date.now().toString(), 
+      text, 
+      sender: 'user', 
+      timestamp: new Date(),
+      wasAudio 
+    };
     setMessages(prev => [...prev, userMsg]);
     setInputText('');
   // --- Recording ---
@@ -1209,7 +1257,7 @@ export default function ChatScreen() {
       const data = await response.json();
       
       if (data.text && data.text.trim()) {
-        await sendMessage(data.text);
+        await sendMessage(data.text, true);
       } else {
         console.log('Empty transcription — mic may have picked up silence.');
         setIsProcessing(false);
@@ -1438,6 +1486,16 @@ export default function ChatScreen() {
                     />
                   </TouchableOpacity>
                 )}
+                {!isAi && item.wasAudio && !item.pronunciationData && hasArabicChars(arabicPart) && (
+                  <TouchableOpacity
+                    onPress={() => analyzeFreeformPronunciation(item.id, item.text)}
+                    style={styles.analyzeBtn}
+                    activeOpacity={0.6}
+                  >
+                    <Ionicons name="analytics-outline" size={12} color="rgba(255,255,255,0.9)" />
+                    <Text style={styles.analyzeBtnText}>Analyze Pronunciation</Text>
+                  </TouchableOpacity>
+                )}
                 <Text style={[
                      styles.timestamp, 
                      item.sender === 'user' ? { color: 'rgba(255,255,255,0.7)' } : { color: '#8E8E93' }
@@ -1657,6 +1715,20 @@ const styles = StyleSheet.create({
   },
   speakerBtn: {
     padding: 4,
+  },
+  analyzeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  analyzeBtnText: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 10,
+    fontWeight: '600',
   },
   inputContainer: {
     borderTopWidth: 1,

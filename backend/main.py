@@ -59,6 +59,9 @@ class PronunciationCheckRequest(BaseModel):
     user_text: str
     expected_text: str
 
+class FreeformPronunciationRequest(BaseModel):
+    user_text: str
+
 # External service configuration.
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
@@ -335,6 +338,84 @@ async def check_pronunciation(request: PronunciationCheckRequest):
     except Exception as e:
         print(f"Pronunciation check error: {e}")
         return {"score": -1, "feedback": "Analysis failed.", "mistakes": [], "annotated": []}
+
+
+FREEFORM_SYSTEM_PROMPT = """You are an advanced Arabic language model.
+The user will provide a transcribed Arabic text that may contain phonetic spelling mistakes due to speech-to-text inaccuracies or mispronunciations (e.g., swapping س and ص, or grammar mistakes).
+Your task is to:
+1. Determine the MOST LIKELY intended correct native Arabic sentence.
+2. Compare the user's text against this expected correct sentence and identify phonetic/spelling mistakes.
+3. Score the pronunciation from 0-100 based on how close the user's text is to the correct text.
+
+You MUST respond with ONLY valid JSON in this exact format (no markdown, no explanation):
+{
+  "expected_text": "Corrected Arabic sentence here",
+  "score": 85,
+  "feedback": "Good attempt! Watch your emphatic sounds.",
+  "mistakes": [
+    {
+      "expected_char": "ص",
+      "spoken_char": "س",
+      "position": 3,
+      "word_expected": "صباح",
+      "word_spoken": "سباح",
+      "explanation": "You used 'seen' (س) instead of 'saad' (ص)."
+    }
+  ],
+  "annotated": [
+    {"char": "ص", "correct": false, "expected": "ص", "spoken": "س"},
+    {"char": "ب", "correct": true},
+    {"char": "ا", "correct": true},
+    {"char": "ح", "correct": true}
+  ]
+}
+
+If the user's text is already perfect or nearly perfect, set score to 100, mistakes to [], and expected_text to the user's text.
+If user_text is completely unintelligible or not Arabic, return score 0."""
+
+@app.post("/freeform-pronunciation")
+async def freeform_pronunciation(request: FreeformPronunciationRequest):
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=500, detail="Groq API key not configured")
+
+    if not request.user_text.strip():
+        return {"expected_text": "", "score": 0, "feedback": "No text provided.", "mistakes": [], "annotated": []}
+
+    print(f"Freeform Pronunciation check for: '{request.user_text}'")
+
+    try:
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": FREEFORM_SYSTEM_PROMPT},
+                {"role": "user", "content": f"User's transcribed text: {request.user_text}"},
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0,
+        )
+
+        raw = completion.choices[0].message.content.strip()
+        import json
+        import re
+        
+        # Strip markdown fences
+        if "```" in raw:
+            match = re.search(r"```(?:json)?(.*?)```", raw, re.DOTALL)
+            if match:
+                raw = match.group(1).strip()
+                
+        # Strip preamble
+        if not raw.startswith("{"):
+            match = re.search(r"({.*})", raw, re.DOTALL)
+            if match:
+                raw = match.group(1).strip()
+
+        result = json.loads(raw)
+        print(f"Freeform result: score={result.get('score')}, expected='{result.get('expected_text')}'")
+        return result
+
+    except Exception as e:
+        print(f"Freeform pronunciation check error: {e}")
+        return {"expected_text": request.user_text, "score": -1, "feedback": "Analysis failed.", "mistakes": [], "annotated": []}
 
 # Common Whisper hallucination phrases that appear when the model
 # processes silence, background noise, or very short audio clips.
