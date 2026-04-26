@@ -561,17 +561,27 @@ def _contains_cjk(text: str) -> bool:
     return bool(re.search(r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]", text or ""))
 
 
-def _looks_wrong_language_for_arabic_voice(text: str) -> bool:
-    """Heuristic for clearly wrong language detection on Arabic voice input."""
+def _looks_disallowed_language_output(text: str) -> bool:
+    """Return True when transcript appears to be outside Arabic/English."""
     stripped = (text or "").strip()
     if not stripped:
         return False
+
     if _contains_cjk(stripped):
         return True
 
     has_arabic = _contains_arabic(stripped)
     has_latin = bool(re.search(r"[A-Za-z]", stripped))
-    return (not has_arabic) and has_latin
+
+    # Must contain at least Arabic or English letters.
+    if not (has_arabic or has_latin):
+        return True
+
+    # Reject common non-Arabic/non-English script blocks.
+    if re.search(r"[\u0370-\u03FF\u0400-\u052F\u0590-\u05FF\u0900-\u097F\u3040-\u30FF\uAC00-\uD7AF]", stripped):
+        return True
+
+    return False
 
 
 # Transcribe uploaded speech into text for the chat screen.
@@ -594,40 +604,58 @@ async def transcribe_audio(file: UploadFile = File(...)):
         if client:
             try:
                 audio_file = open(temp_filename, "rb")
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-large-v3",
-                    file=audio_file,
-                    language="ar",
-                    temperature=0,
-                    prompt="Transcribe Arabic speech in Arabic script only. Example phrases: ما اسمي؟ اسمي أحمد. أهلا وسهلا، كيف حالك؟ أين المطعم؟ أريد قهوة من فضلك.",
+
+                def _transcribe_once(language: Optional[str], prompt: str) -> str:
+                    audio_file.seek(0)
+                    payload: dict[str, Any] = {
+                        "model": "whisper-large-v3",
+                        "file": audio_file,
+                        "temperature": 0,
+                        "prompt": prompt,
+                    }
+                    if language:
+                        payload["language"] = language
+                    transcript = client.audio.transcriptions.create(**payload)
+                    return (transcript.text or "").strip()
+
+                result_text = _transcribe_once(
+                    None,
+                    "Transcribe only spoken Arabic or English. If speech is unclear, output the best Arabic/English transcript only.",
                 )
-                result_text = (transcript.text or "").strip()
                 print(f"Transcription: {result_text}")
 
-                if _looks_wrong_language_for_arabic_voice(result_text):
-                    print(f"Suspicious non-Arabic transcription detected, retrying once: {result_text}")
-                    audio_file.seek(0)
-                    retry_transcript = client.audio.transcriptions.create(
-                        model="whisper-large-v3",
-                        file=audio_file,
-                        language="ar",
-                        temperature=0,
-                        prompt="Arabic only. Keep output in Arabic script. For example: ما اسمي؟",
+                if _looks_disallowed_language_output(result_text):
+                    print(f"Disallowed language/script detected, retrying for Arabic/English: {result_text}")
+                    retry_ar = _transcribe_once(
+                        "ar",
+                        "Arabic speech only. Keep output in Arabic script. Example: ما اسمي؟",
                     )
-                    retry_text = (retry_transcript.text or "").strip()
-                    print(f"Retry transcription: {retry_text}")
-                    if retry_text:
-                        result_text = retry_text
+                    retry_en = _transcribe_once(
+                        "en",
+                        "English speech only. Return clear English text.",
+                    )
+
+                    print(f"Retry Arabic transcription: {retry_ar}")
+                    print(f"Retry English transcription: {retry_en}")
+
+                    if retry_ar and not _looks_disallowed_language_output(retry_ar):
+                        result_text = retry_ar
+                    elif retry_en and not _looks_disallowed_language_output(retry_en):
+                        result_text = retry_en
+                    elif retry_ar:
+                        result_text = retry_ar
+                    elif retry_en:
+                        result_text = retry_en
 
                 if _is_likely_hallucination(result_text):
                     print(f"Filtered hallucination: \"{result_text}\"")
                     return {"text": ""}
 
-                if _looks_wrong_language_for_arabic_voice(result_text):
-                    print(f"Dropping non-Arabic transcription after retry: {result_text}")
+                if _looks_disallowed_language_output(result_text):
+                    print(f"Dropping transcription outside Arabic/English after retries: {result_text}")
                     return {"text": ""}
 
-                enriched_text = _add_tashkeel_if_easy(result_text)
+                enriched_text = _add_tashkeel_if_easy(result_text) if _contains_arabic(result_text) else result_text
                 if enriched_text != result_text:
                     print(f"Transcription with tashkeel: {enriched_text}")
 
