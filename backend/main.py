@@ -81,6 +81,12 @@ if SUPABASE_URL and SUPABASE_KEY:
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     print("Supabase Connected.")
 
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+supabase_admin: Client | None = None
+if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+    supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    print("Supabase Admin Client Connected.")
+
 
 
 # Prompt tuned for Arabic tutoring, corrections, and concise replies.
@@ -688,14 +694,16 @@ async def chat_with_ai(request: ChatRequest):
     chat_history = []
     if supabase:
         try:
-            history_response = (
+            history_query = (
                 supabase
                 .table("messages")
                 .select("role, content")
                 .eq("session_id", request.session_id)
-                .order("created_at", desc=False)
-                .execute()
             )
+            if request.user_id:
+                history_query = history_query.eq("user_id", request.user_id)
+
+            history_response = history_query.order("created_at", desc=False).execute()
             chat_history = history_response.data if history_response.data else []
         except Exception as e:
             print(f"Supabase history fetch failed; continuing without history: {e}")
@@ -799,6 +807,39 @@ async def chat_with_ai(request: ChatRequest):
 @app.get("/")
 def read_root():
     return {"message": "Lugha AI Backend is running"}
+
+
+@app.get("/leaderboard")
+def get_leaderboard(limit: int = 10):
+    safe_limit = min(max(limit, 1), 50)
+    db = supabase_admin or supabase
+    if not db:
+        raise HTTPException(status_code=500, detail="Supabase not configured")
+
+    try:
+        response = (
+            db
+            .table("profiles")
+            .select("id, email, xp_points, streak")
+            .order("xp_points", desc=True)
+            .limit(safe_limit)
+            .execute()
+        )
+
+        rows = response.data if response.data else []
+        leaders = [
+            {
+                "id": row.get("id"),
+                "email": row.get("email") or "",
+                "xp_points": int(row.get("xp_points") or 0),
+                "streak": int(row.get("streak") or 0),
+            }
+            for row in rows
+        ]
+        return {"leaders": leaders}
+    except Exception as e:
+        print(f"Leaderboard fetch failed: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch leaderboard")
 
 # Convert text to spoken audio for the app.
 @app.post("/tts")

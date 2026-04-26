@@ -2,9 +2,11 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/utils/supabase';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -19,6 +21,31 @@ interface LeaderboardEntry {
   xp_points: number;
   streak: number;
 }
+
+const getBackendUrl = () => {
+  if (Platform.OS === 'web') return 'http://localhost:8001';
+
+  try {
+    const legacyManifest = Constants.manifest as { debuggerHost?: string } | null;
+    const hostUri =
+      Constants.expoConfig?.hostUri ??
+      Constants.manifest2?.extra?.expoGo?.debuggerHost ??
+      legacyManifest?.debuggerHost;
+    const host = hostUri?.split(':')[0];
+
+    if (host) {
+      if (Platform.OS === 'android' && host === 'localhost') {
+        return 'http://10.0.2.2:8001';
+      }
+      return `http://${host}:8001`;
+    }
+  } catch {
+  }
+
+  return 'http://localhost:8001';
+};
+
+const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL ?? getBackendUrl();
 
 const MEDAL_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32']; // Gold, Silver, Bronze
 
@@ -40,6 +67,28 @@ export default function LeaderboardScreen() {
       const { data: { session } } = await supabase.auth.getSession();
       setCurrentUserId(session?.user?.id ?? null);
 
+      try {
+        const response = await fetch(`${BACKEND_URL}/leaderboard`);
+        if (!response.ok) {
+          throw new Error(`Status ${response.status}`);
+        }
+
+        const payload = await response.json();
+        const rows = Array.isArray(payload?.leaders) ? payload.leaders : [];
+        setLeaders(
+          rows.map((row: any) => ({
+            id: typeof row?.id === 'string' ? row.id : '',
+            email: typeof row?.email === 'string' ? row.email : '',
+            xp_points: typeof row?.xp_points === 'number' ? row.xp_points : 0,
+            streak: typeof row?.streak === 'number' ? row.streak : 0,
+          }))
+        );
+        return;
+      } catch (backendErr) {
+        console.warn('Backend leaderboard fetch failed, trying direct Supabase query:', backendErr);
+      }
+
+      // Fallback for older backends without /leaderboard.
       const { data, error } = await supabase
         .from('profiles')
         .select('id, email, xp_points, streak')
