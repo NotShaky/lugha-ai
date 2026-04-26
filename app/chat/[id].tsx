@@ -241,7 +241,7 @@ export default function ChatScreen() {
   const isAdaptiveMasteryPack = selectedSetKey === 'adaptive';
   const baseDrillSet = DRILL_SETS[selectedSetKey];
   const activeDrillSetKey = isDrillMode ? selectedSetKey : 'general';
-  
+
   const [adaptiveDrillTitle, setAdaptiveDrillTitle] = useState(baseDrillSet.title);
   const [adaptiveDrillIntro, setAdaptiveDrillIntro] = useState(
     isAdaptiveMasteryPack ? baseDrillSet.intro : `${baseDrillSet.intro}\n\n${ADAPTIVE_BONUS_INTRO}`,
@@ -269,9 +269,9 @@ export default function ChatScreen() {
     }
     let welcomeText = ' أهلا وسهلا\n\nWelcome to Lugha AI Chat! Practice Arabic conversation with me.';
     if (typeof scenario === 'string' && scenario) {
-       welcomeText += `\n\nWe are roleplaying: ${typeof title === 'string' ? title : scenario}. Go ahead and start the conversation!`;
+      welcomeText += `\n\nWe are roleplaying: ${typeof title === 'string' ? title : scenario}. Go ahead and start the conversation!`;
     } else {
-       welcomeText += "\n\nYou can type in English or Arabic, or use the microphone to speak. Let's get started!";
+      welcomeText += "\n\nYou can type in English or Arabic, or use the microphone to speak. Let's get started!";
     }
 
     return [
@@ -289,6 +289,7 @@ export default function ChatScreen() {
   const [expandedCorrections, setExpandedCorrections] = useState<Set<string>>(new Set());
   const [showTranslations, setShowTranslations] = useState(true);
   const [autoSpeak, setAutoSpeak] = useState(false);
+  const [showTashkeel, setShowTashkeel] = useState(true);
   const [speakingId, setSpeakingId] = useState<string | null>(null);
   const activeDrills = adaptiveDrills;
   const getDisplayPrompt = (drills: DrillItem[], index: number): string => {
@@ -300,7 +301,7 @@ export default function ChatScreen() {
   };
 
   // --- Refs ---
-  const speakingIdRef = useRef<string | null>(null); 
+  const speakingIdRef = useRef<string | null>(null);
   const currentPlayerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
   const currentWebPlayerRef = useRef<HTMLAudioElement | null>(null);
   const flatListRef = useRef<FlatList>(null);
@@ -518,7 +519,7 @@ export default function ChatScreen() {
   // --- Effects ---
   useEffect(() => {
     setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
+      flatListRef.current?.scrollToEnd({ animated: true });
     }, 100);
 
     if (autoSpeak && messages.length > 0) {
@@ -548,6 +549,12 @@ export default function ChatScreen() {
       .trim();
   };
 
+  const applyTashkeelSetting = (text: string): string => {
+    if (showTashkeel) return text;
+    // Remove all Arabic short vowels / diacritics (Fatha, Kasra, Damma, Shadda, Sukun, etc.)
+    return text.replace(/[\u064B-\u0652\u0670]/g, '');
+  };
+
   // --- TTS Helpers ---
   const segmentTextByLanguage = (text: string) => {
     const parts = text.split(/([a-zA-Z0-9]+(?:[\s.,!?'"-]+[a-zA-Z0-9]+)*)/g);
@@ -556,9 +563,9 @@ export default function ChatScreen() {
     parts.forEach(p => {
       const trimmed = p.trim();
       if (!trimmed || /^[^a-zA-Z0-9\u0600-\u06FF]+$/.test(trimmed)) return;
-      
+
       if (/[a-zA-Z]/.test(trimmed)) {
-        segments.push({ text: trimmed, voice: 'en-GB-RyanNeural' }); 
+        segments.push({ text: trimmed, voice: 'en-GB-RyanNeural' });
       } else {
         segments.push({ text: trimmed, voice: 'ar-SA-HamedNeural' });
       }
@@ -622,7 +629,7 @@ export default function ChatScreen() {
           });
         } else {
           const ttsUrl = `${BACKEND_URL}/tts?text=${encodeURIComponent(segment.text)}&voice=${encodeURIComponent(segment.voice)}`;
-          
+
           await new Promise<void>((resolve) => {
             if (speakingIdRef.current !== messageId) return resolve();
 
@@ -654,7 +661,7 @@ export default function ChatScreen() {
                 }
                 resolve();
               }
-            }, 250); 
+            }, 250);
           });
         }
       } catch (error) {
@@ -679,14 +686,14 @@ export default function ChatScreen() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_text: text }),
       }, 15000);
-      
+
       const pronData: PronunciationFeedback = await response.json();
-      
+
       if (pronData && pronData.score >= 0) {
         if (pronData.score === 100 && pronData.mistakes?.length === 0) {
           pronData.feedback = "Perfect pronunciation!";
         }
-        
+
         const pronMsg: Message = {
           id: Date.now().toString() + '_pron',
           text: `🎯 Pronunciation Score: ${pronData.score}/100\n${pronData.feedback}`,
@@ -695,7 +702,7 @@ export default function ChatScreen() {
           timestamp: new Date(),
           pronunciationData: pronData,
         };
-        
+
         setMessages(prev => {
           const next = prev.map(m => m.id === messageId ? { ...m, pronunciationData: pronData } : m);
           return [...next, pronMsg];
@@ -713,17 +720,17 @@ export default function ChatScreen() {
 
   const sendMessage = async (text: string, wasAudio?: boolean) => {
     if (!text.trim()) return;
-    
-    const userMsg: Message = { 
-      id: Date.now().toString(), 
-      text, 
-      sender: 'user', 
+
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      text,
+      sender: 'user',
       timestamp: new Date(),
-      wasAudio 
+      wasAudio
     };
     setMessages(prev => [...prev, userMsg]);
     setInputText('');
-  // --- Recording ---
+    // --- Recording ---
     setIsProcessing(true);
 
     try {
@@ -817,7 +824,7 @@ export default function ChatScreen() {
           return normalizedWords.join(' ');
         };
 
-         const buildHint = (answer: string, userInput: string, attempt: number): string => {
+        const buildHint = (answer: string, userInput: string, attempt: number): string => {
           const answerWordsRaw = answer.trim().split(/\s+/).filter(Boolean);
           const userWordsRaw = userInput.trim().split(/\s+/).filter(Boolean);
           const answerWords = answerWordsRaw.map((w) => normalizeArabicForTolerance(w));
@@ -945,7 +952,7 @@ export default function ChatScreen() {
 
         const isCorrect = strictMatch || toleranceMatch || synonymMatch;
         const acceptedByTolerance = !strictMatch && (toleranceMatch || synonymMatch);
-        
+
         if (isCorrect) {
           void addProgress(10);
           setDrillWrongAttempts((prev) => {
@@ -964,22 +971,22 @@ export default function ChatScreen() {
           if (nextIndex < activeDrills.length) {
             setCurrentDrillIndex(nextIndex);
             const feedback = `✓ Correct! Well done!${toleranceNote}\n\nNext drill:` + `\n\n${getDisplayPrompt(activeDrills, nextIndex)}`;
-            const aiMsg: Message = { 
-              id: Date.now().toString() + '_ai', 
-              text: feedback, 
-              sender: 'ai', 
-              timestamp: new Date() 
+            const aiMsg: Message = {
+              id: Date.now().toString() + '_ai',
+              text: feedback,
+              sender: 'ai',
+              timestamp: new Date()
             };
             setMessages(prev => [...prev, aiMsg]);
           } else {
             setCurrentDrillIndex(activeDrills.length);
             void markPackCompleted(activeDrillSetKey);
             const feedback = `✓ Correct! Excellent work!${toleranceNote}\n\n🎉 You've completed ${adaptiveDrillTitle}!\n\nGreat job practicing Arabic!`;
-            const aiMsg: Message = { 
-              id: Date.now().toString() + '_ai', 
-              text: feedback, 
-              sender: 'ai', 
-              timestamp: new Date() 
+            const aiMsg: Message = {
+              id: Date.now().toString() + '_ai',
+              text: feedback,
+              sender: 'ai',
+              timestamp: new Date()
             };
             setMessages(prev => [...prev, aiMsg]);
           }
@@ -997,11 +1004,11 @@ export default function ChatScreen() {
             ? `Not quite yet. ${buildHint(currentDrill.answer, text, nextAttempt)}${pronunciationNote}\n\nTry again or type 'next' to skip.`
             : `Not quite. The suggested answer is:\n\n${currentDrill.answer}${pronunciationNote}\n\nTry again or move to the next drill by typing 'next'.`;
 
-          const aiMsg: Message = { 
-            id: Date.now().toString() + '_ai', 
-            text: feedback, 
-            sender: 'ai', 
-            timestamp: new Date() 
+          const aiMsg: Message = {
+            id: Date.now().toString() + '_ai',
+            text: feedback,
+            sender: 'ai',
+            timestamp: new Date()
           };
           setMessages(prev => [...prev, aiMsg]);
         }
@@ -1060,10 +1067,10 @@ export default function ChatScreen() {
       }
 
       console.log(`Sending to: ${BACKEND_URL}/chat`);
-      
+
       const chatHistory = messages
-        .filter(m => m.id !== 'welcome' && m.type !== 'correction') 
-        .slice(-10) 
+        .filter(m => m.id !== 'welcome' && m.type !== 'correction')
+        .slice(-10)
         .map(m => ({
           role: m.sender === 'ai' ? 'assistant' : 'user',
           content: m.text
@@ -1075,7 +1082,7 @@ export default function ChatScreen() {
 
       if (!userId) {
         console.error("User not logged in!");
-        return; 
+        return;
       }
 
       let userPersona = 'General Learner';
@@ -1098,15 +1105,15 @@ export default function ChatScreen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          text,            
+          text,
           session_id: id,
-          user_id: userId, 
+          user_id: userId,
           persona: userPersona,
           scenario: typeof scenario === 'string' && scenario ? scenario : undefined,
           history: chatHistory,
         }),
       }, 15000);
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         Alert.alert('Server Error', `Status: ${response.status}\nBody: ${errorText}`);
@@ -1240,7 +1247,7 @@ export default function ChatScreen() {
       }
       const uri = recorder.uri;
       console.log('Recording stopped, uri:', uri);
-      
+
       if (!uri) {
         console.error('No recording URI available');
         Alert.alert('Error', 'Recording failed — no audio file was created.');
@@ -1256,9 +1263,9 @@ export default function ChatScreen() {
         method: 'POST',
         body: formData,
       }, 30000);
-      
+
       const data = await response.json();
-      
+
       if (data.text && data.text.trim()) {
         await sendMessage(data.text, true);
       } else {
@@ -1282,7 +1289,7 @@ export default function ChatScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-             <Ionicons name="arrow-back" size={24} color="#000" />
+          <Ionicons name="arrow-back" size={24} color="#000" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{typeof title === 'string' ? title : 'Lugha AI Chat'}</Text>
         <View style={styles.headerActions}>
@@ -1305,6 +1312,15 @@ export default function ChatScreen() {
             <Ionicons name="language" size={20} color={showTranslations ? '#007AFF' : '#999'} />
             <Text style={[styles.translateBtnText, showTranslations && { color: '#007AFF' }]}>
               {showTranslations ? 'EN' : 'EN'}
+            </Text>
+          </TouchableOpacity>
+          {/* Tashkeel Toggle Button */}
+          <TouchableOpacity
+            onPress={() => setShowTashkeel(prev => !prev)}
+            style={styles.translateBtn}
+          >
+            <Text style={[styles.translateBtnText, showTashkeel && { color: '#007AFF' }]}>
+              {showTashkeel ? 'Vowels ON' : 'Vowels OFF'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -1468,15 +1484,15 @@ export default function ChatScreen() {
           }
           return (
             <View style={[
-              styles.bubble, 
+              styles.bubble,
               item.sender === 'user' ? styles.bubbleUser : styles.bubbleAi
             ]}>
               <Text style={[
-                styles.text, 
+                styles.text,
                 item.sender === 'user' ? styles.textUser : styles.textAi,
                 isAi && hasArabicChars(arabicPart) && styles.textRtl,
               ]}>
-                {arabicPart}
+                {applyTashkeelSetting(arabicPart)}
               </Text>
               {englishPart && showTranslations && (
                 <View style={styles.englishBox}>
@@ -1509,10 +1525,10 @@ export default function ChatScreen() {
                   </TouchableOpacity>
                 )}
                 <Text style={[
-                     styles.timestamp, 
-                     item.sender === 'user' ? { color: 'rgba(255,255,255,0.7)' } : { color: '#8E8E93' }
+                  styles.timestamp,
+                  item.sender === 'user' ? { color: 'rgba(255,255,255,0.7)' } : { color: '#8E8E93' }
                 ]}>
-                    {item.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {item.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </Text>
               </View>
             </View>
@@ -1527,7 +1543,7 @@ export default function ChatScreen() {
         style={styles.inputContainer}
       >
         <View style={styles.inputWrapper}>
-          <TextInput 
+          <TextInput
             style={styles.textInput}
             placeholder="Type in Arabic or English..."
             value={inputText}
@@ -1535,9 +1551,9 @@ export default function ChatScreen() {
             multiline
             placeholderTextColor="#999"
           />
-          
+
           {isRecording ? (
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={stopRecording}
               style={[styles.micBtn, styles.micBtnRecording]}
               disabled={isProcessing}
@@ -1553,7 +1569,7 @@ export default function ChatScreen() {
               <Ionicons name="arrow-up" size={20} color="#fff" />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={startRecording}
               style={styles.micBtn}
               disabled={isProcessing}
@@ -1715,9 +1731,9 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   timestamp: {
-      fontSize: 10,
-      marginTop: 4,
-      alignSelf: 'flex-end',
+    fontSize: 10,
+    marginTop: 4,
+    alignSelf: 'flex-end',
   },
   bubbleFooter: {
     flexDirection: 'row',
