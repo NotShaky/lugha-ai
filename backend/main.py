@@ -89,7 +89,7 @@ If the user asks about an Arabic slang word (like Egyptian slang), explain its m
 If the user writes in English, provide the Arabic translation, and then provide a helpful breakdown in English explaining what the individual Arabic words mean.
 Do NOT include transliteration by default. Use Arabic script directly in normal replies.
 Only include transliteration if the user explicitly asks for pronunciation/transliteration, or if a single keyword is likely hard to read; in that case, include at most 1-2 transliterations total in the format: Arabic {Transliteration}. NEVER transliterate full sentences.
-If the user writes in Arabic, carefully evaluate it for mistakes. IF AND ONLY IF there is an actual grammar, spelling, or vocabulary mistake, your VERY FIRST LINE must be exactly: "✏️ Correction: [corrected Arabic] - [Brief English explanation of the mistake]". 
+If the user writes in Arabic, carefully evaluate it for mistakes. IF AND ONLY IF there is an actual grammar, spelling, or vocabulary mistake, your VERY FIRST LINE must be exactly: "✏️ Correction: [corrected Arabic] - [Brief explanation of the mistake in english]". ensure the correction always has some sort of english in it as the user will be an english speaker trying to learn arabic
 If the user's Arabic is perfectly correct, DO NOT output a correction line at all.
 Make sure there is a blank line after the correction (if you made one). Then, reply normally in Arabic to continue the conversation. Keep your conversational answers concise. 
 Finally, add an English translation of ONLY your conversational reply on a new line in parentheses, exactly like: "(English: [translation of the Arabic reply])"."""
@@ -284,11 +284,26 @@ You MUST respond with ONLY valid JSON in this exact format (no markdown, no expl
       "explanation": "You used 'seen' (س) instead of 'saad' (ص). Saad is the emphatic version — press your tongue against the roof of your mouth."
     }
   ],
-  "annotated": [
-    {"char": "ص", "correct": false, "expected": "ص", "spoken": "س"},
-    {"char": "ب", "correct": true},
-    {"char": "ا", "correct": true},
-    {"char": "ح", "correct": true}
+  "annotated_words": [
+    {
+      "word": "صباح",
+      "letters": [
+        {"char": "ص", "correct": false, "expected": "ص", "spoken": "س"},
+        {"char": "ب", "correct": true},
+        {"char": "ا", "correct": true},
+        {"char": "ح", "correct": true}
+      ]
+    },
+    {
+      "word": "الخير",
+      "letters": [
+        {"char": "ا", "correct": true},
+        {"char": "ل", "correct": true},
+        {"char": "خ", "correct": true},
+        {"char": "ي", "correct": true},
+        {"char": "ر", "correct": true}
+      ]
+    }
   ]
 }
 
@@ -362,11 +377,26 @@ You MUST respond with ONLY valid JSON in this exact format (no markdown, no expl
       "explanation": "You used 'seen' (س) instead of 'saad' (ص)."
     }
   ],
-  "annotated": [
-    {"char": "ص", "correct": false, "expected": "ص", "spoken": "س"},
-    {"char": "ب", "correct": true},
-    {"char": "ا", "correct": true},
-    {"char": "ح", "correct": true}
+  "annotated_words": [
+    {
+      "word": "صباح",
+      "letters": [
+        {"char": "ص", "correct": false, "expected": "ص", "spoken": "س"},
+        {"char": "ب", "correct": true},
+        {"char": "ا", "correct": true},
+        {"char": "ح", "correct": true}
+      ]
+    },
+    {
+      "word": "الخير",
+      "letters": [
+        {"char": "ا", "correct": true},
+        {"char": "ل", "correct": true},
+        {"char": "خ", "correct": true},
+        {"char": "ي", "correct": true},
+        {"char": "ر", "correct": true}
+      ]
+    }
   ]
 }
 

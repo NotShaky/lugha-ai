@@ -89,7 +89,10 @@ interface PronunciationFeedback {
   score: number;
   feedback: string;
   mistakes: PronunciationMistake[];
-  annotated: AnnotatedChar[];
+  annotated_words: {
+    word: string;
+    letters: AnnotatedChar[];
+  }[];
 }
 
 interface Message {
@@ -1400,30 +1403,39 @@ export default function ChatScreen() {
                   </View>
                 </View>
 
-                {/* Annotated Characters */}
-                {pd.annotated.length > 0 && (
+                {/* Annotated Words */}
+                {pd.annotated_words && pd.annotated_words.length > 0 && (
                   <View style={styles.pronAnnotatedRow}>
-                    {pd.annotated.map((ch, idx) => (
-                      <TouchableOpacity
-                        key={`${idx}-${ch.char}`}
-                        disabled={ch.correct}
-                        onPress={() => {
-                          if (!ch.correct && ch.expected) {
-                            speakArabic(ch.expected, `pron-${item.id}-${idx}`);
-                          }
-                        }}
-                        activeOpacity={0.6}
-                      >
-                        <Text
-                          style={[
-                            styles.pronChar,
-                            ch.correct ? styles.pronCharCorrect : styles.pronCharWrong,
-                          ]}
+                    {pd.annotated_words.map((wordObj, wordIdx) => {
+                      const hasMistake = wordObj.letters.some(l => !l.correct);
+                      return (
+                        <TouchableOpacity
+                          key={`word-${wordIdx}`}
+                          disabled={!hasMistake}
+                          onPress={() => {
+                            if (hasMistake) {
+                              speakArabic(wordObj.word, `pron-word-${item.id}-${wordIdx}`);
+                            }
+                          }}
+                          activeOpacity={0.6}
+                          style={styles.pronWordContainer}
                         >
-                          {ch.char}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                          <Text style={styles.pronWord}>
+                            {wordObj.letters.map((ch, idx) => (
+                              <Text
+                                key={`char-${wordIdx}-${idx}`}
+                                style={[
+                                  styles.pronChar,
+                                  ch.correct ? styles.pronCharCorrect : styles.pronCharWrong,
+                                ]}
+                              >
+                                {ch.char}
+                              </Text>
+                            ))}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 )}
 
@@ -1832,19 +1844,23 @@ const styles = StyleSheet.create({
   pronAnnotatedRow: {
     flexDirection: 'row-reverse',
     flexWrap: 'wrap',
-    gap: 4,
+    gap: 8,
     marginBottom: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
     backgroundColor: '#FFF',
     borderRadius: 10,
   },
-  pronChar: {
+  pronWordContainer: {
+    backgroundColor: 'transparent',
+  },
+  pronWord: {
     fontSize: 26,
     fontWeight: '600',
-    paddingHorizontal: 3,
-    paddingVertical: 2,
-    borderRadius: 4,
+    writingDirection: 'rtl',
+  },
+  pronChar: {
+    // Nested inside pronWord, so font inherits. We just control colors here.
   },
   pronCharCorrect: {
     color: '#34C759',
