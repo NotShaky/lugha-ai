@@ -1,7 +1,7 @@
 import { getCompletedPacks } from '@/utils/progress';
 import { supabase } from '@/utils/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -70,27 +70,24 @@ export default function HomeScreen() {
     });
   };
 
-  useEffect(() => {
-    let mounted = true;
 
-    const refreshCompletedPacks = async () => {
-      const packs = await getCompletedPacks();
-      if (mounted) setCompletedPacks(packs);
-    };
 
-    void refreshCompletedPacks();
+  useFocusEffect(
+    React.useCallback(() => {
+      let mounted = true;
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
+      const refreshCompletedPacks = async () => {
+        const packs = await getCompletedPacks();
+        if (mounted) setCompletedPacks(packs);
+      };
+
       void refreshCompletedPacks();
-    });
 
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
-  }, []);
+      return () => {
+        mounted = false;
+      };
+    }, [])
+  );
 
   const isAdaptiveUnlocked = useMemo(() => {
     return CORE_PACK_IDS.every((packId) => completedPacks.includes(packId));

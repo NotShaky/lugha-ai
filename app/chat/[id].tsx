@@ -717,7 +717,27 @@ export default function ChatScreen() {
         const normalizeEnglishWords = (str: string): string[] => {
           const expanded = str
             .toLowerCase()
-            .replace(/\bdo\s*['’]?nt\b/g, 'do not');
+            .replace(/\bdo\s*['’]?nt\b/g, 'do not')
+            .replace(/\bdoes\s*['’]?nt\b/g, 'does not')
+            .replace(/\bdid\s*['’]?nt\b/g, 'did not')
+            .replace(/\bis\s*['’]?nt\b/g, 'is not')
+            .replace(/\bare\s*['’]?nt\b/g, 'are not')
+            .replace(/\bwas\s*['’]?nt\b/g, 'was not')
+            .replace(/\bwere\s*['’]?nt\b/g, 'were not')
+            .replace(/\bhas\s*['’]?nt\b/g, 'has not')
+            .replace(/\bhave\s*['’]?nt\b/g, 'have not')
+            .replace(/\bhad\s*['’]?nt\b/g, 'had not')
+            .replace(/\bcan\s*['’]?t\b/g, 'cannot')
+            .replace(/\bcould\s*['’]?nt\b/g, 'could not')
+            .replace(/\bshould\s*['’]?nt\b/g, 'should not')
+            .replace(/\bwould\s*['’]?nt\b/g, 'would not')
+            .replace(/\bwon\s*['’]?t\b/g, 'will not')
+            .replace(/\b(i|you|he|she|it|we|they)\s*['’]?ll\b/g, '$1 will')
+            .replace(/\bi\s*['’]?m\b/g, 'i am')
+            .replace(/\b(you|we|they)\s*['’]?re\b/g, '$1 are')
+            .replace(/\b(he|she|it|that|there)\s*['’]?s\b/g, '$1 is')
+            .replace(/\b(i|you|he|she|it|we|they)\s*['’]?ve\b/g, '$1 have')
+            .replace(/\b(i|you|he|she|it|we|they)\s*['’]?d\b/g, '$1 would');
 
           return expanded
             .replace(/[^a-z0-9\s]/g, ' ')
@@ -933,34 +953,46 @@ export default function ChatScreen() {
             timestamp: new Date() 
           };
           setMessages(prev => [...prev, aiMsg]);
-
-          // Fire pronunciation analysis for Arabic answers (async, non-blocking).
-          if (answerLooksArabic && userLooksArabic) {
-            fetchWithTimeout(`${BACKEND_URL}/pronunciation-check`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                user_text: text,
-                expected_text: currentDrill.answer,
-              }),
-            }, 10000)
-              .then(res => res.json())
-              .then((pronData: PronunciationFeedback) => {
-                if (pronData && pronData.score >= 0 && pronData.annotated?.length > 0) {
-                  const pronMsg: Message = {
-                    id: Date.now().toString() + '_pron',
-                    text: `🎯 Pronunciation Score: ${pronData.score}/100\n${pronData.feedback}`,
-                    sender: 'ai',
-                    type: 'pronunciation',
-                    timestamp: new Date(),
-                    pronunciationData: pronData,
-                  };
-                  setMessages(prev => [...prev, pronMsg]);
-                }
-              })
-              .catch(err => console.warn('Pronunciation check failed:', err));
-          }
         }
+
+        // Fire pronunciation analysis for Arabic answers (async, non-blocking).
+        if (answerLooksArabic && userLooksArabic) {
+          fetchWithTimeout(`${BACKEND_URL}/pronunciation-check`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_text: text,
+              expected_text: currentDrill.answer,
+            }),
+          }, 10000)
+            .then(res => res.json())
+            .then((pronData: PronunciationFeedback) => {
+              if (pronData && pronData.score >= 0) {
+                // If they got the answer wrong entirely (wrong vocab) but pronunciation LLM gave it 100, 
+                // don't show the badge because it's confusing.
+                if (!isCorrect && pronData.score === 100 && pronData.mistakes?.length === 0) {
+                  return;
+                }
+
+                // If they got it right and perfectly, give them a nice perfect badge!
+                if (isCorrect && pronData.score === 100 && pronData.mistakes?.length === 0) {
+                  pronData.feedback = "Perfect pronunciation!";
+                }
+
+                const pronMsg: Message = {
+                  id: Date.now().toString() + '_pron',
+                  text: `🎯 Pronunciation Score: ${pronData.score}/100\n${pronData.feedback}`,
+                  sender: 'ai',
+                  type: 'pronunciation',
+                  timestamp: new Date(),
+                  pronunciationData: pronData,
+                };
+                setMessages(prev => [...prev, pronMsg]);
+              }
+            })
+            .catch(err => console.warn('Pronunciation check failed:', err));
+        }
+
         setIsProcessing(false);
         return;
       }
