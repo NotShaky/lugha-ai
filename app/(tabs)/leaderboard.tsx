@@ -195,7 +195,7 @@ export default function LeaderboardScreen() {
                       <Text style={styles.rankInitials}>{getInitials(entry)}</Text>
                     </View>
                     <View style={styles.rankInfo}>
-                      <Text style={[styles.rankName, { color: textColor }]} numberOfLines={1}>
+                      <Text style={[styles.rankName, { color: '#000000ff' }]} numberOfLines={1}>
                         {getDisplayName(entry)}
                         {isCurrentUser && <Text style={styles.youBadge}> (You)</Text>}
                       </Text>
@@ -204,7 +204,7 @@ export default function LeaderboardScreen() {
                         <Text style={[styles.rankStreak, { color: subTextColor }]}>{entry.streak} day streak</Text>
                       </View>
                     </View>
-                    <Text style={[styles.rankXp, { color: textColor }]}>{entry.xp_points}</Text>
+                    <Text style={[styles.rankXp, { color: '#000000ff' }]}>{entry.xp_points}</Text>
                     <Text style={[styles.rankXpLabel, { color: subTextColor }]}>XP</Text>
                   </View>
                 );
