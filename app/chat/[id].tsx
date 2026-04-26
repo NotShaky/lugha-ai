@@ -1,26 +1,26 @@
 import { Ionicons } from '@expo/vector-icons';
 import {
-  createAudioPlayer,
-  RecordingPresets,
-  requestRecordingPermissionsAsync,
-  setAudioModeAsync,
-  useAudioRecorder,
+    createAudioPlayer,
+    RecordingPresets,
+    requestRecordingPermissionsAsync,
+    setAudioModeAsync,
+    useAudioRecorder,
 } from 'expo-audio';
 import Constants from 'expo-constants';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  KeyboardAvoidingView,
-  Platform,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    KeyboardAvoidingView,
+    Platform,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { addProgress, logDrillError, markPackCompleted } from '../../utils/progress';
@@ -1106,6 +1106,7 @@ export default function ChatScreen() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text,
+          was_audio: Boolean(wasAudio),
           session_id: id,
           user_id: userId,
           persona: userPersona,
@@ -1184,7 +1185,7 @@ export default function ChatScreen() {
             const data = await res.json();
 
             if (data.text && data.text.trim()) {
-              await sendMessage(data.text);
+              await sendMessage(data.text, true);
             } else {
               setIsProcessing(false);
             }
@@ -1422,8 +1423,8 @@ export default function ChatScreen() {
                 {/* Annotated Words */}
                 {pd.annotated_words && pd.annotated_words.length > 0 && (
                   <View style={styles.pronAnnotatedRow}>
-                    {pd.annotated_words.map((wordObj, wordIdx) => {
-                      const hasMistake = wordObj.letters.some(l => !l.correct);
+                    {pd.annotated_words.map((wordObj: { word: string; letters: AnnotatedChar[] }, wordIdx: number) => {
+                      const hasMistake = wordObj.letters.some((l: AnnotatedChar) => !l.correct);
                       return (
                         <TouchableOpacity
                           key={`word-${wordIdx}`}
@@ -1437,7 +1438,7 @@ export default function ChatScreen() {
                           style={styles.pronWordContainer}
                         >
                           <Text style={styles.pronWord}>
-                            {wordObj.letters.map((ch, idx) => (
+                            {wordObj.letters.map((ch: AnnotatedChar, idx: number) => (
                               <Text
                                 key={`char-${wordIdx}-${idx}`}
                                 style={[
@@ -1458,7 +1459,7 @@ export default function ChatScreen() {
                 {/* Mistake Details */}
                 {pd.mistakes.length > 0 && (
                   <View style={styles.pronMistakesList}>
-                    {pd.mistakes.map((m, idx) => (
+                    {pd.mistakes.map((m: PronunciationMistake, idx: number) => (
                       <View key={idx} style={styles.pronMistakeRow}>
                         <View style={styles.pronMistakeChars}>
                           <TouchableOpacity onPress={() => speakArabic(m.expected_char, `pron-exp-${idx}`)}>

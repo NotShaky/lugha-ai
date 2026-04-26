@@ -41,6 +41,7 @@ class ChatRequest(BaseModel):
     persona: Optional[str] = "General Learner"
     scenario: Optional[str] = None
     history: Optional[List[dict]] = None
+    was_audio: Optional[bool] = False
 
 class TTSRequest(BaseModel):
     text: str
@@ -85,14 +86,14 @@ if SUPABASE_URL and SUPABASE_KEY:
 # Prompt tuned for Arabic tutoring, corrections, and concise replies.
 SYSTEM_PROMPT = """You are a helpful and friendly Arabic language tutor. The user may write in Arabic, English, or a mix of both. You must ONLY use English and Arabic in your responses. NEVER use any other languages.
 NEVER repeat the same sentence, phrase, or word breakdown multiple times in a row. Do not get stuck in repetitive loops.
-CRITICAL: You MUST always write Arabic text with FULL tashkeel (vowel marks / harakat). Every Arabic word you output must include fatha, kasra, damma, sukun, shadda, and tanween where grammatically appropriate. For example, write "مَرْحَبًا" not "مرحبا", and "أَهْلًا وَسَهْلًا" not "أهلا وسهلا". This is essential for the learner.
+Prefer to include tashkeel (vowel marks / harakat) in Arabic when it is easy and natural to do so, especially for beginner-facing words, corrections, and potentially ambiguous terms. If full tashkeel is uncertain or would make the sentence unnatural, use partial or no tashkeel rather than forcing it.
 If the user asks about an Arabic slang word (like Egyptian slang), explain its meaning in English clearly without necessarily trying to correct it to formal Arabic.
-If the user writes in English, provide the Arabic translation (with full tashkeel), and then provide a helpful breakdown in English explaining what the individual Arabic words mean.
+If the user writes in English, provide the Arabic translation (adding tashkeel where easy/useful), and then provide a helpful breakdown in English explaining what the individual Arabic words mean.
 Do NOT include transliteration by default. Use Arabic script directly in normal replies.
 Only include transliteration if the user explicitly asks for pronunciation/transliteration, or if a single keyword is likely hard to read; in that case, include at most 1-2 transliterations total in the format: Arabic {Transliteration}. NEVER transliterate full sentences.
-If the user writes in Arabic, carefully evaluate it for mistakes. IF AND ONLY IF there is an actual grammar, spelling, or vocabulary mistake, your VERY FIRST LINE must be exactly: "✏️ Correction: [corrected Arabic with full tashkeel] - [Brief explanation of the mistake in english]". ensure the correction always has some sort of english in it as the user will be an english speaker trying to learn arabic
+If the user writes in Arabic, carefully evaluate it for mistakes. IF AND ONLY IF there is an actual grammar, spelling, or vocabulary mistake, your VERY FIRST LINE must be exactly: "✏️ Correction: [corrected Arabic (add tashkeel where easy/useful)] - [Brief explanation of the mistake in english]". ensure the correction always has some sort of english in it as the user will be an english speaker trying to learn arabic
 If the user's Arabic is perfectly correct, DO NOT output a correction line at all.
-Make sure there is a blank line after the correction (if you made one). Then, reply normally in Arabic (with full tashkeel) to continue the conversation. Keep your conversational answers concise. 
+Make sure there is a blank line after the correction (if you made one). Then, reply normally in Arabic (include tashkeel where easy/useful) to continue the conversation. Keep your conversational answers concise. 
 Finally, add an English translation of ONLY your conversational reply on a new line in parentheses, exactly like: "(English: [translation of the Arabic reply])"."""
 
 
@@ -101,6 +102,48 @@ def _strip_json_code_fences(raw_text: str) -> str:
     cleaned = re.sub(r"^```(?:json)?\\s*", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\\s*```$", "", cleaned)
     return cleaned.strip()
+
+
+def _contains_arabic(text: str) -> bool:
+    return bool(re.search(r"[\u0600-\u06FF]", text or ""))
+
+
+def _add_tashkeel_if_easy(text: str) -> str:
+    """Try to add natural tashkeel to Arabic text without changing wording."""
+    clean_text = (text or "").strip()
+    if not clean_text or not _contains_arabic(clean_text) or not client:
+        return clean_text
+
+    try:
+        completion = client.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You add Arabic tashkeel only when easy and confident. "
+                        "Do not translate, do not explain, do not change wording, and output one plain line only."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Add helpful tashkeel to this exact Arabic text when easy: {clean_text}",
+                },
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0,
+        )
+        candidate = (completion.choices[0].message.content or "").strip()
+        candidate = _strip_json_code_fences(candidate)
+
+        if not candidate:
+            return clean_text
+        # Keep output safe: must remain Arabic-containing and roughly same length.
+        if _contains_arabic(candidate) and abs(len(candidate) - len(clean_text)) <= max(20, len(clean_text)):
+            return candidate
+        return clean_text
+    except Exception as exc:
+        print(f"Tashkeel enrichment skipped: {exc}")
+        return clean_text
 
 
 def _fallback_adaptive_drills(recent_errors: list[dict[str, Any]], count: int) -> dict[str, Any]:
@@ -481,6 +524,24 @@ def _is_likely_hallucination(text: str) -> bool:
     return False
 
 
+def _contains_cjk(text: str) -> bool:
+    """Return True if text contains Chinese/Japanese/Kanji characters."""
+    return bool(re.search(r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]", text or ""))
+
+
+def _looks_wrong_language_for_arabic_voice(text: str) -> bool:
+    """Heuristic for clearly wrong language detection on Arabic voice input."""
+    stripped = (text or "").strip()
+    if not stripped:
+        return False
+    if _contains_cjk(stripped):
+        return True
+
+    has_arabic = _contains_arabic(stripped)
+    has_latin = bool(re.search(r"[A-Za-z]", stripped))
+    return (not has_arabic) and has_latin
+
+
 # Transcribe uploaded speech into text for the chat screen.
 @app.post("/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
@@ -502,19 +563,43 @@ async def transcribe_audio(file: UploadFile = File(...)):
             try:
                 audio_file = open(temp_filename, "rb")
                 transcript = client.audio.transcriptions.create(
-                    model="whisper-large-v3", 
+                    model="whisper-large-v3",
                     file=audio_file,
+                    language="ar",
                     temperature=0,
-                    prompt="أهلا وسهلا، كيف حالك؟ أين المطعم؟ أريد قهوة من فضلك.",
+                    prompt="Transcribe Arabic speech in Arabic script only. Example phrases: ما اسمي؟ اسمي أحمد. أهلا وسهلا، كيف حالك؟ أين المطعم؟ أريد قهوة من فضلك.",
                 )
                 result_text = (transcript.text or "").strip()
                 print(f"Transcription: {result_text}")
+
+                if _looks_wrong_language_for_arabic_voice(result_text):
+                    print(f"Suspicious non-Arabic transcription detected, retrying once: {result_text}")
+                    audio_file.seek(0)
+                    retry_transcript = client.audio.transcriptions.create(
+                        model="whisper-large-v3",
+                        file=audio_file,
+                        language="ar",
+                        temperature=0,
+                        prompt="Arabic only. Keep output in Arabic script. For example: ما اسمي؟",
+                    )
+                    retry_text = (retry_transcript.text or "").strip()
+                    print(f"Retry transcription: {retry_text}")
+                    if retry_text:
+                        result_text = retry_text
 
                 if _is_likely_hallucination(result_text):
                     print(f"Filtered hallucination: \"{result_text}\"")
                     return {"text": ""}
 
-                return {"text": result_text}
+                if _looks_wrong_language_for_arabic_voice(result_text):
+                    print(f"Dropping non-Arabic transcription after retry: {result_text}")
+                    return {"text": ""}
+
+                enriched_text = _add_tashkeel_if_easy(result_text)
+                if enriched_text != result_text:
+                    print(f"Transcription with tashkeel: {enriched_text}")
+
+                return {"text": enriched_text}
 
             except Exception as e:
                 print(f"Groq Error: {e}")
@@ -583,6 +668,9 @@ async def chat_with_ai(request: ChatRequest):
 
     if request.scenario:
         dynamic_prompt += f" IMPORTANT: We are roleplaying a specific scenario: '{request.scenario}'. Stay in character as the other person in this scenario. Continue the conversation naturally based on what has already been said. Do NOT re-introduce yourself or restart the scenario if you have already greeted the user."
+
+    if request.was_audio:
+        dynamic_prompt += " The user's latest message came from speech transcription. For this turn, include helpful Arabic tashkeel where easy and useful, especially on beginner words and any corrected forms."
 
     # 2. Start with the tailored System Prompt
     api_messages = [{"role": "system", "content": dynamic_prompt}]
