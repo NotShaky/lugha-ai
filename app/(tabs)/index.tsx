@@ -52,14 +52,18 @@ export default function HomeScreen() {
   const handleOpenChat = () => {
     router.push({
       pathname: '/chat/[id]',
-      params: { id: `chat-${Date.now()}`, title: 'Lugha AI Chat' },
+      params: { id: 'chat-main', title: 'Lugha AI Chat' },
     });
   };
 
   const handleOpenRoleplay = (scenarioParam: string, title: string) => {
     router.push({
       pathname: '/chat/[id]',
-      params: { id: `chat-${Date.now()}`, title, scenario: scenarioParam },
+      params: {
+        id: `chat-roleplay-${scenarioParam.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+        title,
+        scenario: scenarioParam,
+      },
     });
   };
 

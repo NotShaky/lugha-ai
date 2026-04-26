@@ -146,6 +146,38 @@ def _add_tashkeel_if_easy(text: str) -> str:
         return clean_text
 
 
+def _extract_name_hint_from_messages(messages: list[dict[str, Any]]) -> Optional[str]:
+    """Extract a likely user name from prior user messages (English/Arabic patterns)."""
+    if not messages:
+        return None
+
+    english_patterns = [
+        re.compile(r"\bmy\s+name\s+is\s+([A-Za-z][A-Za-z\-\s']{1,30})", re.IGNORECASE),
+        re.compile(r"\bi\s+am\s+([A-Za-z][A-Za-z\-\s']{1,30})", re.IGNORECASE),
+        re.compile(r"\bi['’]m\s+([A-Za-z][A-Za-z\-\s']{1,30})", re.IGNORECASE),
+    ]
+    arabic_patterns = [
+        re.compile(r"(?:اسمي|أَ?نَا\s+اسمي|أنا\s+اسمي)\s*[:\-]?\s*([\u0621-\u064A]{2,30})"),
+    ]
+
+    for row in reversed(messages):
+        content = str(row.get("content") or "").strip()
+        if not content:
+            continue
+
+        for pattern in english_patterns:
+            match = pattern.search(content)
+            if match:
+                return match.group(1).strip(" .,!?:;\"'")
+
+        for pattern in arabic_patterns:
+            match = pattern.search(content)
+            if match:
+                return match.group(1).strip()
+
+    return None
+
+
 def _fallback_adaptive_drills(recent_errors: list[dict[str, Any]], count: int) -> dict[str, Any]:
     fallback_drills: list[dict[str, str]] = []
 
@@ -656,6 +688,28 @@ async def chat_with_ai(request: ChatRequest):
     print(f"History loaded: {len(recent_history)} messages for session {request.session_id}")
 
     dynamic_prompt = SYSTEM_PROMPT + f"\n\nThe user's learning profile is: {request.persona or 'General Learner'}."
+
+    if supabase and request.user_id:
+        try:
+            all_user_messages_response = (
+                supabase
+                .table("messages")
+                .select("role, content, created_at")
+                .eq("user_id", request.user_id)
+                .eq("role", "user")
+                .order("created_at", desc=True)
+                .limit(120)
+                .execute()
+            )
+            all_user_messages = all_user_messages_response.data if all_user_messages_response.data else []
+            remembered_name = _extract_name_hint_from_messages(all_user_messages)
+            if remembered_name:
+                dynamic_prompt += (
+                    f"\n\nPersistent user memory hint: The user has previously said their name is '{remembered_name}'. "
+                    "Use this ONLY when contextually relevant; do not force it into every reply."
+                )
+        except Exception as e:
+            print(f"User-level memory fetch failed; continuing without persistent hint: {e}")
 
     if request.persona == "Faith-Based Learner":
         dynamic_prompt += " Whenever possible, include vocabulary and examples from classical Islamic texts and the Qur'an."
