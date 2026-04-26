@@ -4,8 +4,185 @@ import { Ionicons } from '@expo/vector-icons';
 import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
 import Constants from 'expo-constants';
 import React, { useRef, useState } from 'react';
-import { Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+// --- Flashcard Component ---
+interface FlashCardProps {
+  ar: string;
+  en: string;
+  tr: string;
+  cardBg: string;
+  textColor: string;
+  subTextColor: string;
+  onPlayAudio: () => void;
+  isPlaying: boolean;
+}
+
+function FlashCard({ ar, en, tr, cardBg, textColor, subTextColor, onPlayAudio, isPlaying }: FlashCardProps) {
+  const flipAnim = useRef(new Animated.Value(0)).current;
+  const [isFlipped, setIsFlipped] = useState(false);
+
+  const flipCard = () => {
+    Animated.spring(flipAnim, {
+      toValue: isFlipped ? 0 : 1,
+      friction: 8,
+      tension: 10,
+      useNativeDriver: true,
+    }).start();
+    setIsFlipped(!isFlipped);
+  };
+
+  const frontInterpolate = flipAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '180deg'],
+  });
+
+  const backInterpolate = flipAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['180deg', '360deg'],
+  });
+
+  const frontOpacity = flipAnim.interpolate({
+    inputRange: [0, 0.5, 0.5, 1],
+    outputRange: [1, 1, 0, 0],
+  });
+
+  const backOpacity = flipAnim.interpolate({
+    inputRange: [0, 0.5, 0.5, 1],
+    outputRange: [0, 0, 1, 1],
+  });
+
+  return (
+    <View style={flashStyles.cardContainer}>
+      <TouchableOpacity activeOpacity={0.9} onPress={flipCard}>
+        {/* Front Face — Arabic */}
+        <Animated.View
+          style={[
+            flashStyles.card,
+            { backgroundColor: cardBg },
+            {
+              transform: [{ perspective: 800 }, { rotateY: frontInterpolate }],
+              opacity: frontOpacity,
+            },
+          ]}
+        >
+          <Text style={flashStyles.cardArabic}>{ar}</Text>
+          <View style={flashStyles.cardFooter}>
+            <Text style={[flashStyles.tapHint, { color: subTextColor }]}>Tap to reveal</Text>
+            <TouchableOpacity
+              onPress={(e) => { e.stopPropagation(); onPlayAudio(); }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons
+                name={isPlaying ? 'stop-circle' : 'volume-medium'}
+                size={22}
+                color={isPlaying ? '#FF3B30' : '#007AFF'}
+              />
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+
+        {/* Back Face — English + Transliteration */}
+        <Animated.View
+          style={[
+            flashStyles.card,
+            flashStyles.cardBack,
+            {
+              transform: [{ perspective: 800 }, { rotateY: backInterpolate }],
+              opacity: backOpacity,
+            },
+          ]}
+        >
+          <Text style={flashStyles.cardEnglish}>{en}</Text>
+          <Text style={flashStyles.cardTranslit}>{tr}</Text>
+          <Text style={flashStyles.cardArabicSmall}>{ar}</Text>
+          <View style={flashStyles.cardFooter}>
+            <Text style={[flashStyles.tapHint, { color: 'rgba(255,255,255,0.6)' }]}>Tap to flip back</Text>
+            <TouchableOpacity
+              onPress={(e) => { e.stopPropagation(); onPlayAudio(); }}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons
+                name={isPlaying ? 'stop-circle' : 'volume-medium'}
+                size={22}
+                color={isPlaying ? '#FF6B6B' : '#fff'}
+              />
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const flashStyles = StyleSheet.create({
+  cardContainer: {
+    width: '48%',
+    height: 160,
+    marginBottom: 14,
+  },
+  card: {
+    position: 'absolute',
+    width: '100%',
+    height: 160,
+    borderRadius: 16,
+    padding: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backfaceVisibility: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: '#E8E8ED',
+  },
+  cardBack: {
+    backgroundColor: '#005F73',
+    borderColor: '#005F73',
+  },
+  cardArabic: {
+    fontSize: 32,
+    fontWeight: '600',
+    color: '#001219',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  cardEnglish: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#fff',
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  cardTranslit: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.7)',
+    textAlign: 'center',
+    fontStyle: 'italic',
+    marginBottom: 8,
+  },
+  cardArabicSmall: {
+    fontSize: 18,
+    color: 'rgba(255,255,255,0.5)',
+    textAlign: 'center',
+  },
+  cardFooter: {
+    position: 'absolute',
+    bottom: 10,
+    left: 12,
+    right: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  tapHint: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+});
 
 const getBackendUrl = () => {
   if (Platform.OS === 'web') return 'http://localhost:8001';
@@ -390,31 +567,26 @@ export default function LearnScreen() {
           </View>
         ))}
 
-        <Text style={[styles.sectionTitle, { color: textColor }]}>Vocabulary Bank</Text>
+        <Text style={[styles.sectionTitle, { color: textColor }]}>Vocabulary Flashcards</Text>
+        <Text style={[styles.sectionSub, { color: subTextColor }]}>Tap a card to flip and reveal the meaning</Text>
         {vocabByTheme.map((themeItem) => (
-          <View key={themeItem.title} style={[styles.blockCard, { backgroundColor: cardBg }]}>
-            <Text style={[styles.blockTitle, { color: textColor }]}>{themeItem.title}</Text>
-            {themeItem.words.map((word) => (
-              <View key={`${themeItem.title}-${word.ar}`} style={styles.wordRow}>
-                <Text style={styles.wordArabic}>{word.ar}</Text>
-
-                <TouchableOpacity 
-                  style={styles.inlinePlayBtn}
-                  onPress={() => playAudio(word.ar, `vocab-${word.ar}`, '-40%')}
-                >
-                  <Ionicons 
-                    name={playingId === `vocab-${word.ar}` ? "stop-circle" : "volume-medium"} 
-                    size={20} 
-                    color={playingId === `vocab-${word.ar}` ? '#FF3B30' : '#007AFF'} 
-                  />
-                </TouchableOpacity>
-
-                <View style={styles.wordMeta}>
-                  <Text style={[styles.wordEnglish, { color: textColor }]}>{word.en}</Text>
-                  <Text style={[styles.wordTranslit, { color: subTextColor }]}>{word.tr}</Text>
-                </View>
-              </View>
-            ))}
+          <View key={themeItem.title}>
+            <Text style={[styles.blockTitle, { color: textColor, marginBottom: 12 }]}>{themeItem.title}</Text>
+            <View style={styles.flashcardGrid}>
+              {themeItem.words.map((word) => (
+                <FlashCard
+                  key={`${themeItem.title}-${word.ar}`}
+                  ar={word.ar}
+                  en={word.en}
+                  tr={word.tr}
+                  cardBg={cardBg}
+                  textColor={textColor}
+                  subTextColor={subTextColor}
+                  onPlayAudio={() => playAudio(word.ar, `vocab-${word.ar}`, '-40%')}
+                  isPlaying={playingId === `vocab-${word.ar}`}
+                />
+              ))}
+            </View>
           </View>
         ))}
 
@@ -637,6 +809,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: '#D6D6D6',
+  },
+  flashcardGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 8,
   },
   wordArabic: {
     width: 110,
