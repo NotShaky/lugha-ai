@@ -54,6 +54,11 @@ class AdaptiveDrillsRequest(BaseModel):
     drill_set: Optional[str] = None
     count: int = 3
 
+
+class PronunciationCheckRequest(BaseModel):
+    user_text: str
+    expected_text: str
+
 # External service configuration.
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
@@ -251,6 +256,85 @@ async def generate_adaptive_drills(request: AdaptiveDrillsRequest):
             "source": "fallback_parse_or_generation",
             "error_count": len(recent_errors),
         }
+
+
+# --- Pronunciation Analysis ---
+PRONUNCIATION_SYSTEM_PROMPT = """You are an Arabic pronunciation analysis engine. Compare the user's spoken text against the expected text and identify phonetic mistakes.
+
+RULES:
+1. Focus on letter-level phonetic errors common in Arabic learners: confusing emphatic/non-emphatic pairs (ص/س, ض/د, ط/ت, ظ/ذ), throat sounds (ح/ه, ع/ا, خ/غ), and similar consonants (ق/ك, ث/ذ/ز).
+2. Ignore diacritical marks (tashkeel) differences.
+3. Ignore minor transcription artifacts like extra spaces or alif variations (أ/إ/ا).
+4. Score from 0-100 based on how close the pronunciation was.
+
+You MUST respond with ONLY valid JSON in this exact format (no markdown, no explanation):
+{
+  "score": 85,
+  "feedback": "Good attempt! Watch your emphatic sounds.",
+  "mistakes": [
+    {
+      "expected_char": "ص",
+      "spoken_char": "س",
+      "position": 3,
+      "word_expected": "صباح",
+      "word_spoken": "سباح",
+      "explanation": "You used 'seen' (س) instead of 'saad' (ص). Saad is the emphatic version — press your tongue against the roof of your mouth."
+    }
+  ],
+  "annotated": [
+    {"char": "ص", "correct": false, "expected": "ص", "spoken": "س"},
+    {"char": "ب", "correct": true},
+    {"char": "ا", "correct": true},
+    {"char": "ح", "correct": true}
+  ]
+}
+
+If the texts are identical or nearly identical, return score 100 with empty mistakes array.
+If user_text is empty or not Arabic, return score 0."""
+
+@app.post("/pronunciation-check")
+async def check_pronunciation(request: PronunciationCheckRequest):
+    if not GROQ_API_KEY:
+        raise HTTPException(status_code=500, detail="Groq API key not configured")
+
+    if not request.user_text.strip() or not request.expected_text.strip():
+        return {"score": 0, "feedback": "No text provided.", "mistakes": [], "annotated": []}
+
+    print(f"Pronunciation check: '{request.user_text}' vs expected '{request.expected_text}'")
+
+    try:
+        completion = client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": PRONUNCIATION_SYSTEM_PROMPT},
+                {"role": "user", "content": f"Expected text: {request.expected_text}\nUser's spoken text: {request.user_text}"},
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0,
+        )
+
+        raw = completion.choices[0].message.content.strip()
+        import json
+        import re
+        
+        # Strip markdown fences if the model wraps JSON in ```json ... ```
+        if "```" in raw:
+            match = re.search(r"```(?:json)?(.*?)```", raw, re.DOTALL)
+            if match:
+                raw = match.group(1).strip()
+                
+        # Handle cases where Llama outputs text before/after JSON
+        if not raw.startswith("{"):
+            match = re.search(r"({.*})", raw, re.DOTALL)
+            if match:
+                raw = match.group(1).strip()
+
+        result = json.loads(raw)
+        print(f"Pronunciation result: score={result.get('score')}, mistakes={len(result.get('mistakes', []))}")
+        return result
+
+    except Exception as e:
+        print(f"Pronunciation check error: {e}")
+        return {"score": -1, "feedback": "Analysis failed.", "mistakes": [], "annotated": []}
 
 # Common Whisper hallucination phrases that appear when the model
 # processes silence, background noise, or very short audio clips.

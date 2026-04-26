@@ -69,12 +69,36 @@ const fetchWithTimeout = (url: string, options: RequestInit, timeoutMs = FETCH_T
   });
 };
 
+interface PronunciationMistake {
+  expected_char: string;
+  spoken_char: string;
+  position: number;
+  word_expected: string;
+  word_spoken: string;
+  explanation: string;
+}
+
+interface AnnotatedChar {
+  char: string;
+  correct: boolean;
+  expected?: string;
+  spoken?: string;
+}
+
+interface PronunciationFeedback {
+  score: number;
+  feedback: string;
+  mistakes: PronunciationMistake[];
+  annotated: AnnotatedChar[];
+}
+
 interface Message {
   id: string;
   text: string;
   sender: 'user' | 'ai';
-  type?: 'correction' | 'reply';
+  type?: 'correction' | 'reply' | 'pronunciation';
   timestamp: Date;
+  pronunciationData?: PronunciationFeedback;
 }
 
 interface DrillItem {
@@ -909,6 +933,33 @@ export default function ChatScreen() {
             timestamp: new Date() 
           };
           setMessages(prev => [...prev, aiMsg]);
+
+          // Fire pronunciation analysis for Arabic answers (async, non-blocking).
+          if (answerLooksArabic && userLooksArabic) {
+            fetchWithTimeout(`${BACKEND_URL}/pronunciation-check`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                user_text: text,
+                expected_text: currentDrill.answer,
+              }),
+            }, 10000)
+              .then(res => res.json())
+              .then((pronData: PronunciationFeedback) => {
+                if (pronData && pronData.score >= 0 && pronData.annotated?.length > 0) {
+                  const pronMsg: Message = {
+                    id: Date.now().toString() + '_pron',
+                    text: `🎯 Pronunciation Score: ${pronData.score}/100\n${pronData.feedback}`,
+                    sender: 'ai',
+                    type: 'pronunciation',
+                    timestamp: new Date(),
+                    pronunciationData: pronData,
+                  };
+                  setMessages(prev => [...prev, pronMsg]);
+                }
+              })
+              .catch(err => console.warn('Pronunciation check failed:', err));
+          }
         }
         setIsProcessing(false);
         return;
@@ -1250,6 +1301,79 @@ export default function ChatScreen() {
             );
           }
 
+          // --- Pronunciation Feedback Bubble ---
+          if (item.type === 'pronunciation' && item.pronunciationData) {
+            const pd = item.pronunciationData;
+            const scoreColor = pd.score >= 80 ? '#34C759' : pd.score >= 50 ? '#FF9500' : '#FF3B30';
+
+            return (
+              <View style={[styles.bubble, styles.bubblePronunciation]}>
+                {/* Score Badge */}
+                <View style={styles.pronScoreRow}>
+                  <View style={[styles.pronScoreBadge, { backgroundColor: scoreColor }]}>
+                    <Text style={styles.pronScoreText}>{pd.score}</Text>
+                    <Text style={styles.pronScoreLabel}>/100</Text>
+                  </View>
+                  <View style={styles.pronFeedbackWrap}>
+                    <Text style={styles.pronTitle}>Pronunciation Analysis</Text>
+                    <Text style={styles.pronFeedback}>{pd.feedback}</Text>
+                  </View>
+                </View>
+
+                {/* Annotated Characters */}
+                {pd.annotated.length > 0 && (
+                  <View style={styles.pronAnnotatedRow}>
+                    {pd.annotated.map((ch, idx) => (
+                      <TouchableOpacity
+                        key={`${idx}-${ch.char}`}
+                        disabled={ch.correct}
+                        onPress={() => {
+                          if (!ch.correct && ch.expected) {
+                            speakArabic(ch.expected, `pron-${item.id}-${idx}`);
+                          }
+                        }}
+                        activeOpacity={0.6}
+                      >
+                        <Text
+                          style={[
+                            styles.pronChar,
+                            ch.correct ? styles.pronCharCorrect : styles.pronCharWrong,
+                          ]}
+                        >
+                          {ch.char}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+
+                {/* Mistake Details */}
+                {pd.mistakes.length > 0 && (
+                  <View style={styles.pronMistakesList}>
+                    {pd.mistakes.map((m, idx) => (
+                      <View key={idx} style={styles.pronMistakeRow}>
+                        <View style={styles.pronMistakeChars}>
+                          <TouchableOpacity onPress={() => speakArabic(m.expected_char, `pron-exp-${idx}`)}>
+                            <Text style={styles.pronExpectedChar}>{m.expected_char}</Text>
+                          </TouchableOpacity>
+                          <Ionicons name="arrow-back" size={12} color="#FF3B30" />
+                          <Text style={styles.pronSpokenChar}>{m.spoken_char}</Text>
+                        </View>
+                        <Text style={styles.pronExplanation}>{m.explanation}</Text>
+                        <TouchableOpacity
+                          style={styles.pronPlayCorrect}
+                          onPress={() => speakArabic(m.word_expected, `pron-word-${idx}`)}
+                        >
+                          <Ionicons name="volume-medium" size={14} color="#007AFF" />
+                          <Text style={styles.pronPlayText}>Hear "{m.word_expected}"</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            );
+          }
           return (
             <View style={[
               styles.bubble, 
@@ -1551,5 +1675,122 @@ const styles = StyleSheet.create({
   },
   micBtnRecording: {
     backgroundColor: '#FF3B30',
+  },
+
+  // --- Pronunciation Feedback ---
+  bubblePronunciation: {
+    backgroundColor: '#F8F9FE',
+    borderWidth: 1,
+    borderColor: '#E0E4F0',
+    borderRadius: 16,
+    padding: 14,
+    alignSelf: 'flex-start',
+    maxWidth: '92%',
+  },
+  pronScoreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 12,
+  },
+  pronScoreBadge: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pronScoreText: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFF',
+  },
+  pronScoreLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: -2,
+  },
+  pronFeedbackWrap: {
+    flex: 1,
+  },
+  pronTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1A1A1A',
+    marginBottom: 2,
+  },
+  pronFeedback: {
+    fontSize: 13,
+    color: '#555',
+    lineHeight: 18,
+  },
+  pronAnnotatedRow: {
+    flexDirection: 'row-reverse',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginBottom: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    backgroundColor: '#FFF',
+    borderRadius: 10,
+  },
+  pronChar: {
+    fontSize: 26,
+    fontWeight: '600',
+    paddingHorizontal: 3,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  pronCharCorrect: {
+    color: '#34C759',
+  },
+  pronCharWrong: {
+    color: '#FF3B30',
+    backgroundColor: '#FFE5E5',
+    textDecorationLine: 'underline',
+  },
+  pronMistakesList: {
+    gap: 10,
+  },
+  pronMistakeRow: {
+    backgroundColor: '#FFF',
+    borderRadius: 10,
+    padding: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: '#FF3B30',
+  },
+  pronMistakeChars: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  pronExpectedChar: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#34C759',
+  },
+  pronSpokenChar: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#FF3B30',
+    textDecorationLine: 'line-through',
+  },
+  pronExplanation: {
+    fontSize: 13,
+    color: '#333',
+    lineHeight: 18,
+    marginBottom: 6,
+  },
+  pronPlayCorrect: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  pronPlayText: {
+    fontSize: 12,
+    color: '#007AFF',
+    fontWeight: '600',
   },
 });
