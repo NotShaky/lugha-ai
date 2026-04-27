@@ -8,7 +8,7 @@
 - [Python](https://www.python.org/) (v3.12.10)
 - [Expo Go](https://expo.dev/go) on a physical device to test on mobile
 - A [Groq API key](https://console.groq.com/)
-- A [Supabase] project for auth and profile stats
+- A Supabase project for auth and profile stats
 
 ## Setup
 
