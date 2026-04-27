@@ -144,7 +144,7 @@ const DRILL_SETS: Record<string, DrillSet> = {
   },
   airport: {
     title: 'Airport Drills',
-    intro: 'Practice useful phrases for check-in, passport control, and navigating terminals.',
+    intro: 'Practise useful phrases for check-in, passport control, and navigating terminals.',
     drills: [
       {
         prompt: 'Translate to Arabic: "Where is gate 12?"',
@@ -162,7 +162,7 @@ const DRILL_SETS: Record<string, DrillSet> = {
   },
   classroom: {
     title: 'Classroom Drills',
-    intro: 'Practice classroom language for asking questions and responding to your teacher.',
+    intro: 'Practise classroom language for asking questions and responding to your teacher.',
     drills: [
       {
         prompt: 'Build in Arabic: "May I ask a question?"',
@@ -180,7 +180,7 @@ const DRILL_SETS: Record<string, DrillSet> = {
   },
   adaptive: {
     title: 'Adaptive Mastery Pack',
-    intro: 'A fully personalized drill pack generated from your recent mistakes.',
+    intro: 'A fully personalised drill pack generated from your recent mistakes.',
     drills: [],
   },
 };
@@ -259,14 +259,14 @@ export default function ChatScreen() {
         {
           id: 'welcome',
           text: isAdaptiveMasteryPack
-            ? `Preparing ${baseDrillSet.title}...\n\nGenerating a fully personalized drill pack from your recent mistakes.`
+            ? `Preparing ${baseDrillSet.title}...\n\nGenerating a fully personalised drill pack from your recent mistakes.`
             : `Preparing ${baseDrillSet.title}...\n\nLoading core set drills and your adaptive bonus challenge.`,
           sender: 'ai',
           timestamp: new Date(),
         },
       ];
     }
-    let welcomeText = ' أهلا وسهلا\n\nWelcome to Lugha AI Chat! Practice Arabic conversation with me.';
+    let welcomeText = ' أهلا وسهلا\n\nWelcome to Lugha AI Chat! Practise Arabic conversation with me.';
     if (typeof scenario === 'string' && scenario) {
       welcomeText += `\n\nWe are roleplaying: ${typeof title === 'string' ? title : scenario}. Go ahead and start the conversation!`;
     } else {
@@ -331,7 +331,7 @@ export default function ChatScreen() {
           setMessages([
             {
               id: 'welcome',
-              text: 'Sign in to start the Adaptive Mastery Pack. This pack is fully personalized from your learning history.',
+              text: 'Sign in to start the Adaptive Mastery Pack. This pack is fully personalised from your learning history.',
               sender: 'ai',
               timestamp: new Date(),
             },
@@ -670,7 +670,7 @@ export default function ChatScreen() {
     }
   };
 
-  const analyzeFreeformPronunciation = async (messageId: string, text: string) => {
+  const analyseFreeformPronunciation = async (messageId: string, text: string) => {
     setIsProcessing(true);
     try {
       const response = await fetchWithTimeout(`${BACKEND_URL}/freeform-pronunciation`, {
@@ -700,7 +700,7 @@ export default function ChatScreen() {
           return [...next, pronMsg];
         });
       } else {
-        Alert.alert("Analysis Failed", "Could not analyze pronunciation.");
+        Alert.alert("Analysis Failed", "Could not analyse pronunciation.");
       }
     } catch (err) {
       console.warn('Freeform pronunciation check failed:', err);
@@ -1508,12 +1508,12 @@ export default function ChatScreen() {
                 )}
                 {!isAi && item.wasAudio && !item.pronunciationData && hasArabicChars(arabicPart) && (
                   <TouchableOpacity
-                    onPress={() => analyzeFreeformPronunciation(item.id, item.text)}
-                    style={styles.analyzeBtn}
+                    onPress={() => analyseFreeformPronunciation(item.id, item.text)}
+                    style={styles.analyseBtn}
                     activeOpacity={0.6}
                   >
                     <Ionicons name="analytics-outline" size={12} color="rgba(255,255,255,0.9)" />
-                    <Text style={styles.analyzeBtnText}>Analyze Pronunciation</Text>
+                    <Text style={styles.analyseBtnText}>Analyse Pronunciation</Text>
                   </TouchableOpacity>
                 )}
                 <Text style={[
@@ -1736,7 +1736,7 @@ const styles = StyleSheet.create({
   speakerBtn: {
     padding: 4,
   },
-  analyzeBtn: {
+  analyseBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
@@ -1745,7 +1745,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
-  analyzeBtnText: {
+  analyseBtnText: {
     color: 'rgba(255,255,255,0.9)',
     fontSize: 10,
     fontWeight: '600',

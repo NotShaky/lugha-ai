@@ -1,8 +1,7 @@
 import { getCompletedPacks } from '@/utils/progress';
-import { supabase } from '@/utils/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter, useFocusEffect } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -37,7 +36,7 @@ const scenarioCards = [
   {
     id: 'adaptive',
     title: 'Adaptive Mastery Pack',
-    subtitle: 'Fully personalized drills from your completed packs and mistakes',
+    subtitle: 'Fully personalised drills from your completed packs and mistakes',
     icon: 'sparkles-outline',
     color: '#7C3AED',
   },
@@ -119,7 +118,7 @@ export default function HomeScreen() {
         </TouchableOpacity>
 
         <Text style={styles.sectionTitle}>Roleplay Scenarios</Text>
-        <Text style={styles.sectionSubtitle}>Pick a real-world situation and practice in character with the AI.</Text>
+        <Text style={styles.sectionSubtitle}>Pick a real-world situation and practise in character with the AI.</Text>
         
         <View style={styles.roleplayGrid}>
           {roleplayScenarios.map((rp) => (

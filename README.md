@@ -1,6 +1,6 @@
 # Lugha AI
 
-**What the software does:** Lugha AI is an interactive Arabic language learning application powered by AI. It provides scenario-based roleplay, personalized adaptive drills, pronunciation feedback, and competitive leaderboards to help users master Arabic conversational skills.
+**What the software does:** Lugha AI is an interactive Arabic language learning application powered by AI. It provides scenario-based roleplay, personalised adaptive drills, pronunciation feedback, and competitive leaderboards to help users master Arabic conversational skills.
 
 ## Prerequisites
 
@@ -74,14 +74,14 @@ EXPO_PUBLIC_BACKEND_URL=http://YOUR_LOCAL_IP:8001
 ## Core Features
 
 - **AI Conversation Practice & Roleplay:** Engage in open-ended chats or structured scenarios (e.g. at the airport, at a restaurant) with an AI tutor.
-- **Scenario Drill Packs & Adaptive Mastery:** Complete structured drills to earn XP. Failing drills logs mistakes which are then used to dynamically generate a personalized "Adaptive Mastery Pack".
+- **Scenario Drill Packs & Adaptive Mastery:** Complete structured drills to earn XP. Failing drills logs mistakes which are then used to dynamically generate a personalised "Adaptive Mastery Pack".
 - **Pronunciation Analysis:** Speak Arabic into the microphone and receive a 0-100 pronunciation score with visual feedback highlighting exact mispronounced letters in red.
 - **Interactive Flashcards:** Smooth 3D-flipping vocabulary cards with native TTS pronunciation playback.
 - **Leaderboard & Progress Tracking:** Compete with others for the most XP with a top 3 podium, while tracking personal streaks and activity.
 - **Voice Transcription & TTS:** Whisper-powered Arabic/English transcription with filtering to keep outputs within Arabic/English, plus native-sounding Text-to-Speech (TTS).
 - **Auto-Corrections:** AI tutor actively corrects grammar mistakes in a collapsible UI bubble while maintaining conversation flow.
 
-## Recent Behavior Notes
+## Recent Behaviour Notes
 
 - **Persistent general chat session:** The main chat now uses a stable chat ID so history retrieval is more consistent across app restarts.
 - **Audio-aware chat responses:** Messages coming from voice transcription are tagged so the backend can tailor Arabic formatting and response style when appropriate.

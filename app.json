@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Lugha AI needs access to your microphone to help you practice speaking Arabic."
+        "NSMicrophoneUsageDescription": "Lugha AI needs access to your microphone to help you practise speaking Arabic."
       }
     },
     "android": {
