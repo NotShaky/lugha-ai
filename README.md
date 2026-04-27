@@ -115,6 +115,7 @@ EXPO_PUBLIC_BACKEND_URL=http://YOUR_LOCAL_IP:8001
 ## Test Credentials
 
 The app uses Supabase for authentication. You can sign up with any test email and password on the login screen. Supabase will send a confirmation email
+- **My personal user** '[shoaib.a.rahman@gmail.com]' / '[lMinato123!]'
 - **Demo test user:** `test@lugha.ai` / `test123`
 
 ## Known Limitations
