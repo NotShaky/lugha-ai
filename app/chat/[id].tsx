@@ -1,26 +1,26 @@
 import { Ionicons } from '@expo/vector-icons';
 import {
-    createAudioPlayer,
-    RecordingPresets,
-    requestRecordingPermissionsAsync,
-    setAudioModeAsync,
-    useAudioRecorder,
+  createAudioPlayer,
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
 } from 'expo-audio';
 import Constants from 'expo-constants';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    KeyboardAvoidingView,
-    Platform,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  KeyboardAvoidingView,
+  Platform,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { addProgress, logDrillError, markPackCompleted } from '../../utils/progress';
@@ -1576,7 +1576,7 @@ export default function ChatScreen() {
 
         </View>
         <Text style={styles.recordingHint}>
-          Voice tip: background audio can reduce transcription accuracy. For best results, pause playback.
+          Note: background audio can reduce the accuracy of speech-to-text translation. For best results, pause any audio playback when recording.
         </Text>
       </KeyboardAvoidingView>
     </SafeAreaView>
