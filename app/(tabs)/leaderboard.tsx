@@ -47,7 +47,7 @@ const getBackendUrl = () => {
 
 const BACKEND_URL = process.env.EXPO_PUBLIC_BACKEND_URL ?? getBackendUrl();
 
-const MEDAL_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32']; // Gold, Silver, Bronze
+const MEDAL_COLORS = ['#FFD700', '#C0C0C0', '#CD7F32'];
 
 export default function LeaderboardScreen() {
   const colorScheme = useColorScheme() ?? 'light';
@@ -88,7 +88,7 @@ export default function LeaderboardScreen() {
         console.warn('Backend leaderboard fetch failed, trying direct Supabase query:', backendErr);
       }
 
-      // Fallback for older backends without /leaderboard.
+      // Keep older deployments working by querying Supabase directly.
       const { data, error } = await supabase
         .from('profiles')
         .select('id, email, xp_points, streak')
@@ -137,7 +137,6 @@ export default function LeaderboardScreen() {
     return name.slice(0, 2).toUpperCase();
   };
 
-  // Avatar background colours per rank
   const avatarColors = [
     '#FF9500', '#AF52DE', '#007AFF', '#34C759', '#FF2D55',
     '#5856D6', '#FF3B30', '#30B0C7', '#FFD60A', '#64D2FF',
@@ -151,7 +150,6 @@ export default function LeaderboardScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={textColor} />
         }
       >
-        {/* Header */}
         <View style={styles.header}>
           <Text style={[styles.headerTitle, { color: textColor }]}>Leaderboard</Text>
           <Text style={[styles.headerSubtitle, { color: subTextColor }]}>
@@ -174,10 +172,8 @@ export default function LeaderboardScreen() {
           </View>
         ) : (
           <>
-            {/* Top 3 Podium */}
             {leaders.length >= 3 && (
               <View style={styles.podiumContainer}>
-                {/* 2nd Place */}
                 <View style={styles.podiumItem}>
                   <View style={[styles.podiumAvatar, styles.podiumAvatarSmall, { backgroundColor: '#C0C0C0' }]}>
                     <Text style={styles.podiumInitials}>{getInitials(leaders[1])}</Text>
@@ -191,7 +187,6 @@ export default function LeaderboardScreen() {
                   </View>
                 </View>
 
-                {/* 1st Place */}
                 <View style={styles.podiumItem}>
                   <View style={[styles.crownContainer]}>
                     <Text style={styles.crownEmoji}>👑</Text>
@@ -208,7 +203,6 @@ export default function LeaderboardScreen() {
                   </View>
                 </View>
 
-                {/* 3rd Place */}
                 <View style={styles.podiumItem}>
                   <View style={[styles.podiumAvatar, styles.podiumAvatarSmall, { backgroundColor: '#CD7F32' }]}>
                     <Text style={styles.podiumInitials}>{getInitials(leaders[2])}</Text>
@@ -224,7 +218,6 @@ export default function LeaderboardScreen() {
               </View>
             )}
 
-            {/* Remaining Ranks */}
             <View style={styles.listContainer}>
               {leaders.slice(leaders.length >= 3 ? 3 : 0).map((entry, idx) => {
                 const rank = leaders.length >= 3 ? idx + 4 : idx + 1;
@@ -309,7 +302,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
 
-  // --- Podium ---
   podiumContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -393,7 +385,6 @@ const styles = StyleSheet.create({
     color: '#555',
   },
 
-  // --- Rank List ---
   listContainer: {
     gap: 10,
   },

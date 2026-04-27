@@ -9,7 +9,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/utils/supabase';
 import { Session } from '@supabase/supabase-js';
 
-// Keep the splash screen visible until fonts and auth state are ready.
+// Keep splash visible until we know both font and auth state.
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
@@ -18,7 +18,6 @@ export default function RootLayout() {
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
   
-  // --- Auth State ---
   const [session, setSession] = useState<Session | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const segments = useSegments();

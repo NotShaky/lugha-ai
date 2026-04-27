@@ -21,7 +21,7 @@ load_dotenv(dotenv_path=env_path)
 
 app = FastAPI()
 
-# Allow the Expo app to call the backend during development.
+# Development CORS policy: Expo clients can call this API from any host.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -63,7 +63,7 @@ class PronunciationCheckRequest(BaseModel):
 class FreeformPronunciationRequest(BaseModel):
     user_text: str
 
-# External service configuration.
+# Integrations (Groq and Supabase) are enabled through environment variables.
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
 
@@ -89,7 +89,7 @@ if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
 
 
 
-# Prompt tuned for Arabic tutoring, corrections, and concise replies.
+# Core tutoring prompt shared by the `/chat` endpoint.
 SYSTEM_PROMPT = """You are a helpful and friendly Arabic language tutor. The user may write in Arabic, English, or a mix of both. You must ONLY use English and Arabic in your responses. NEVER use any other languages.
 NEVER repeat the same sentence, phrase, or word breakdown multiple times in a row. Do not get stuck in repetitive loops.
 Prefer to include tashkeel (vowel marks / harakat) in Arabic when it is easy and natural to do so, especially for beginner-facing words, corrections, and potentially ambiguous terms. If full tashkeel is uncertain or would make the sentence unnatural, use partial or no tashkeel rather than forcing it.
@@ -343,7 +343,6 @@ async def generate_adaptive_drills(request: AdaptiveDrillsRequest):
         }
 
 
-# --- Pronunciation Analysis ---
 PRONUNCIATION_SYSTEM_PROMPT = """You are an Arabic pronunciation analysis engine. Compare the user's spoken text against the expected text and identify phonetic mistakes.
 
 RULES:
@@ -416,13 +415,13 @@ async def check_pronunciation(request: PronunciationCheckRequest):
         import json
         import re
         
-        # Strip markdown fences if the model wraps JSON in ```json ... ```
+        # Models occasionally wrap JSON in markdown fences; strip before parsing.
         if "```" in raw:
             match = re.search(r"```(?:json)?(.*?)```", raw, re.DOTALL)
             if match:
                 raw = match.group(1).strip()
                 
-        # Handle cases where Llama outputs text before/after JSON
+        # Some outputs include preamble/trailing text. Extract the JSON object only.
         if not raw.startswith("{"):
             match = re.search(r"({.*})", raw, re.DOTALL)
             if match:
@@ -509,13 +508,13 @@ async def freeform_pronunciation(request: FreeformPronunciationRequest):
         import json
         import re
         
-        # Strip markdown fences
+        # Models occasionally wrap JSON in markdown fences; strip before parsing.
         if "```" in raw:
             match = re.search(r"```(?:json)?(.*?)```", raw, re.DOTALL)
             if match:
                 raw = match.group(1).strip()
                 
-        # Strip preamble
+        # Some outputs include preamble/trailing text. Extract the JSON object only.
         if not raw.startswith("{"):
             match = re.search(r"({.*})", raw, re.DOTALL)
             if match:
@@ -590,7 +589,7 @@ def _looks_disallowed_language_output(text: str) -> bool:
     return False
 
 
-# Transcribe uploaded speech into text for the chat screen.
+# Transcribe speech uploads used by the chat screen.
 @app.post("/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
     temp_filename = f"temp_{file.filename}"
@@ -599,7 +598,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
         with open(temp_filename, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # Reject very small files (likely silence or accidental taps).
+        # Tiny uploads are usually accidental taps or silence; skip model calls.
         file_size = os.path.getsize(temp_filename)
         print(f"Received file: {temp_filename} ({file_size} bytes)")
 
@@ -682,7 +681,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
             audio_file.close() if 'audio_file' in locals() and not audio_file.closed else None
             os.remove(temp_filename)
 
-# Generate the next AI tutoring response.
+# Generate the next AI tutoring response and persist conversation history.
 @app.post("/chat")
 async def chat_with_ai(request: ChatRequest):
     if not GROQ_API_KEY:
@@ -690,7 +689,7 @@ async def chat_with_ai(request: ChatRequest):
 
     print(f"Fetching permanent history for session: {request.session_id}...")
 
-    # 1. Fetch the conversation history from Supabase (ordered oldest to newest).
+    # Primary source of chat context is persisted Supabase history.
     chat_history = []
     if supabase:
         try:
@@ -708,8 +707,7 @@ async def chat_with_ai(request: ChatRequest):
         except Exception as e:
             print(f"Supabase history fetch failed; continuing without history: {e}")
 
-    # If Supabase returned nothing (e.g. first message timing gap), use the
-    # frontend-supplied history as a fallback so the AI always has context.
+    # Fallback to frontend history when persistence has not caught up yet.
     if not chat_history and request.history:
         chat_history = [
             {"role": msg.get("role", "user"), "content": msg.get("content", "")}
@@ -718,8 +716,7 @@ async def chat_with_ai(request: ChatRequest):
         ]
         print(f"Using frontend history fallback ({len(chat_history)} messages)")
     
-    # Candor Note: LLMs have "token limits". If a conversation has 10,000 messages, it will crash. 
-    # grab the last 40 messages to give it great long-term memory without breaking the AI.
+    # Keep prompt size bounded to avoid token overflows on long sessions.
     recent_history = chat_history[-40:]
     print(f"History loaded: {len(recent_history)} messages for session {request.session_id}")
 
@@ -762,17 +759,13 @@ async def chat_with_ai(request: ChatRequest):
     if request.was_audio:
         dynamic_prompt += " The user's latest message came from speech transcription. For this turn, include helpful Arabic tashkeel where easy and useful, especially on beginner words and any corrected forms."
 
-    # 2. Start with the tailored System Prompt
     api_messages = [{"role": "system", "content": dynamic_prompt}]
-    
-    # 3. Append the Supabase conversation history
+
     for msg in recent_history:
         api_messages.append({"role": msg["role"], "content": msg["content"]})
-        
-    # 4. Append the newest user message
+
     api_messages.append({"role": "user", "content": request.text})
 
-    # 5. Get the AI Response
     chat_completion = client.chat.completions.create(
         messages=api_messages,
         model="llama-3.3-70b-versatile",
@@ -780,10 +773,9 @@ async def chat_with_ai(request: ChatRequest):
     )
     ai_response = chat_completion.choices[0].message.content
     
-    # 6. Save BOTH messages to Supabase permanently when possible.
+    # Persist both turns so subsequent requests can rebuild context from storage.
     if supabase:
         try:
-            # Save User Message
             supabase.table("messages").insert({
                 "session_id": request.session_id,
                 "user_id": request.user_id,
@@ -791,7 +783,6 @@ async def chat_with_ai(request: ChatRequest):
                 "content": request.text
             }).execute()
 
-            # Save AI Message
             supabase.table("messages").insert({
                 "session_id": request.session_id,
                 "user_id": request.user_id,

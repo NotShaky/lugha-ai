@@ -8,7 +8,7 @@
 - [Python](https://www.python.org/) (v3.12.10)
 - [Expo Go](https://expo.dev/go) on a physical device to test on mobile
 - A [Groq API key](https://console.groq.com/)
-- A Supabase project for auth and profile stats
+- A [Supabase] project for auth and profile stats
 
 ## Setup
 
@@ -19,8 +19,6 @@ npm install
 ```
 
 ### 2. Setup Backend (Python)
-
-It is recommended to use a virtual environment:
 
 ```bash
 cd backend
@@ -48,18 +46,14 @@ SUPABASE_URL=https://kpncjxfyzfgtxsyrrnbc.supabase.co
 SUPABASE_KEY=sb_publishable_2b677eiHDDHLCxOVFTrKqg_7T11eOo7 
 ```
 
-Only `GROQ_API_KEY` is required for the core chat flow. `SUPABASE_URL` and `SUPABASE_KEY` are optional for backend features.
-
 ### 4. Start the backend server
 
 The backend needs to be running before you use chat, voice transcription, or TTS:
 
 ```bash
 cd backend
-# If venv is active, just run:
 python -m uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 ```
-
 
 ### 5. Start the Expo app
 
@@ -82,7 +76,6 @@ EXPO_PUBLIC_BACKEND_URL=http://YOUR_LOCAL_IP:8001
 - **AI Conversation Practice & Roleplay:** Engage in open-ended chats or structured scenarios (e.g. at the airport, at a restaurant) with an AI tutor.
 - **Scenario Drill Packs & Adaptive Mastery:** Complete structured drills to earn XP. Failing drills logs mistakes which are then used to dynamically generate a personalized "Adaptive Mastery Pack".
 - **Pronunciation Analysis:** Speak Arabic into the microphone and receive a 0-100 pronunciation score with visual feedback highlighting exact mispronounced letters in red.
-- **Root-and-Pattern Tap Dictionary (Demo):** In chat, supported Arabic words can be tapped to open a modal showing their root letters and base meaning.
 - **Interactive Flashcards:** Smooth 3D-flipping vocabulary cards with native TTS pronunciation playback.
 - **Leaderboard & Progress Tracking:** Compete with others for the most XP with a top 3 podium, while tracking personal streaks and activity.
 - **Voice Transcription & TTS:** Whisper-powered Arabic/English transcription with filtering to keep outputs within Arabic/English, plus native-sounding Text-to-Speech (TTS).
@@ -103,7 +96,7 @@ EXPO_PUBLIC_BACKEND_URL=http://YOUR_LOCAL_IP:8001
 
 ## Progress Tracking
 
-- Chat practice awards XP when the AI responds successfully.
+- Chat practice awards XP when the AI responds.
 - Drill mode also awards XP when the user answers correctly.
 - The Profile tab shows total XP, streak, and the last 7 active days.
 - Activity days are recorded when progress is awarded and when the Profile tab is opened.
@@ -128,10 +121,8 @@ The app uses Supabase for authentication. You can sign up with any test email an
 
 - **Simulated Pronunciation Analysis:** True waveform-based phonetic grading is highly complex and requires specialized ML models (like speech-assessment models). To achieve a robust experience, Lugha AI simulates this by transcribing your speech via Whisper and then using an LLM to perform letter-by-letter phonetic comparison against the expected text. While effective for learning, it relies on the accuracy of the underlying transcription.
 - **Free-Tier API Reliability (Groq/Whisper):** This project currently relies on free-tier API access for parts of speech-to-text and response generation. As a result, transcription quality can occasionally miss or mishear words, and in some cases the assistant may produce a less accurate reply than expected.
-- **Full Root Dictionary Package Not Installed:** A production-grade Arabic morphological/root dictionary package was not integrated in this build due to time constraints, mobile performance constraints, and dependency complexity (bundle size + compatibility for Expo/React Native).
+- **No Root Morphology Features Implemented Yet:** This version does not include Arabic root extraction, pattern analysis, or morphology dictionary integration. This feature was out of scope for the current build due to time and resource constraints.
+- **Same-Network Requirement for Local Testing:** When running the backend locally and testing on a physical device (Expo Go), the phone must be on the same Wi-Fi network as the host machine. If not, the app cannot reach local endpoints (chat, transcription, TTS) unless the backend is deployed to a public URL.
 - **Cloud Latency:** Because STT, TTS, and LLM completions are processed through external APIs (Groq and Edge TTS), poor network connections can lead to slower response times.
 - **Supabase Realtime Sync:** Local UI state is used optimistically for chat history to prevent race conditions while Supabase syncs in the background.
 
-## Future Work
-
-- **Morphology-Backed Root Lexicon:** Integrate a full Arabic morphology/root service with response caching to support broader, more accurate root-and-pattern analysis beyond the current curated demo dictionary.

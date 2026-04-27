@@ -26,7 +26,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { addProgress, logDrillError, markPackCompleted } from '../../utils/progress';
 import { supabase } from '../../utils/supabase';
 
-// --- Backend Configuration ---
 const getBackendUrl = () => {
   if (Platform.OS === 'web') return 'http://localhost:8001';
 
@@ -300,7 +299,6 @@ export default function ChatScreen() {
     return rawPrompt;
   };
 
-  // --- Refs ---
   const speakingIdRef = useRef<string | null>(null);
   const currentPlayerRef = useRef<ReturnType<typeof createAudioPlayer> | null>(null);
   const currentWebPlayerRef = useRef<HTMLAudioElement | null>(null);
@@ -486,7 +484,6 @@ export default function ChatScreen() {
     }
   }, [baseDrillSet, isAdaptiveMasteryPack, isDrillMode, selectedSetKey]);
 
-  // --- Audio Helpers ---
   const stopPlayingAudio = () => {
     if (currentPlayerRef.current) {
       try {
@@ -516,7 +513,6 @@ export default function ChatScreen() {
     }
   });
 
-  // --- Effects ---
   useEffect(() => {
     setTimeout(() => {
       flatListRef.current?.scrollToEnd({ animated: true });
@@ -534,14 +530,13 @@ export default function ChatScreen() {
     void loadAdaptiveDrills();
   }, [loadAdaptiveDrills]);
 
-  // Stop all audio when the user leaves the chat screen.
+  // Ensure audio players are released when leaving this screen.
   useEffect(() => {
     return () => {
       stopPlayingAudio();
     };
   }, []);
 
-  // --- Text Helpers ---
   const getArabicText = (text: string): string => {
     return text
       .replace(/\(English:[\s\S]*?\)\s*$/, '')
@@ -555,7 +550,6 @@ export default function ChatScreen() {
     return text.replace(/[\u064B-\u0652\u0670]/g, '');
   };
 
-  // --- TTS Helpers ---
   const segmentTextByLanguage = (text: string) => {
     const parts = text.split(/([a-zA-Z0-9]+(?:[\s.,!?'"-]+[a-zA-Z0-9]+)*)/g);
     const segments: { text: string; voice: string }[] = [];
@@ -676,8 +670,6 @@ export default function ChatScreen() {
     }
   };
 
-  // --- Message Handling ---
-
   const analyzeFreeformPronunciation = async (messageId: string, text: string) => {
     setIsProcessing(true);
     try {
@@ -730,7 +722,6 @@ export default function ChatScreen() {
     };
     setMessages(prev => [...prev, userMsg]);
     setInputText('');
-    // --- Recording ---
     setIsProcessing(true);
 
     try {
@@ -768,7 +759,7 @@ export default function ChatScreen() {
             .replace(/ئ/g, 'ي')
             .replace(/ة/g, 'ه')
             .replace(/ء/g, '')
-            // STT can confuse throat-heavy openings like ع with nearby vowels.
+            // STT often confuses heavy throat sounds in fast speech, so keep matching tolerant.
             .replace(/ع/g, 'ا');
         };
 
